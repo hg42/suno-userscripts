@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Suno Song Renamer Pro (Stable Selectors)
+// @name         Suno Song Renamer Pro (Prepend Edition)
 // @namespace    http://tampermonkey.net/
-// @version      1.1
-// @description  Batch rename Suno songs using stable attribute selectors and history
+// @version      1.2
+// @description  Batch rename Suno songs with Regex, History and Stop-Button
 // @author       Coding-Assistant
 // @match        https://suno.com/*
 // @grant        none
@@ -11,59 +11,59 @@
 (function() {
     'use strict';
 
-    // --- UI LOGIK ---
+    let isRunning = false;
+
+    // --- UI ERSTELLEN ---
     const createUI = () => {
         const panel = document.createElement('div');
         panel.id = 'suno-renamer-ui';
-        panel.style = "background: #18181b; color: #efeff1; padding: 15px; border-bottom: 2px solid #3f3f46; font-family: ui-sans-serif, system-ui; z-index: 9999; position: relative;";
+        panel.style = "background: #111; color: #eee; padding: 12px; border-bottom: 2px solid #333; font-family: sans-serif; position: relative; z-index: 10000;";
         
         panel.innerHTML = `
-            <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center; max-width: 1200px; margin: 0 auto;">
-                <div style="flex: 2; min-width: 200px;">
-                    <input id="match-input" placeholder="Suchen nach (Regex/String)..." style="width: 100%; background: #09090b; border: 1px solid #3f3f46; color: white; padding: 8px; border-radius: 4px;">
-                </div>
-                <div style="flex: 2; min-width: 200px;">
-                    <input id="replace-input" placeholder="Ersetzen durch..." style="width: 100%; background: #09090b; border: 1px solid #3f3f46; color: white; padding: 8px; border-radius: 4px;">
-                </div>
-                <div style="display: flex; gap: 10px; align-items: center;">
-                    <label style="cursor:pointer; display:flex; align-items:center; gap:5px;"><input type="checkbox" id="is-regex"> Regex</label>
-                    <button id="run-rename" style="background: #3b82f6; color: white; border: none; padding: 8px 20px; border-radius: 4px; cursor: pointer; font-weight: 600;">Start Batch</button>
-                </div>
-                <div id="history-container" style="width: 100%; font-size: 12px; color: #a1a1aa;">
-                    Verlauf: <span id="history-list"></span>
-                </div>
+            <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: center;">
+                <input id="match-input" placeholder="Suchen (Regex/Text)" style="flex: 1; min-width: 150px; background: #222; border: 1px solid #444; color: #fff; padding: 6px; border-radius: 4px;">
+                <input id="replace-input" placeholder="Ersetzen durch" style="flex: 1; min-width: 150px; background: #222; border: 1px solid #444; color: #fff; padding: 6px; border-radius: 4px;">
+                <label style="font-size: 13px; cursor: pointer;"><input type="checkbox" id="is-regex"> Regex</label>
+                <button id="run-rename" style="background: #16a34a; color: white; border: none; padding: 6px 15px; border-radius: 4px; cursor: pointer; font-weight: bold;">Start</button>
+                <button id="stop-rename" style="background: #dc2626; color: white; border: none; padding: 6px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; display: none;">Stop</button>
+            </div>
+            <div id="history-row" style="margin-top: 8px; font-size: 11px; color: #888; text-align: center;">
+                Verlauf: <span id="history-items"></span>
             </div>
         `;
 
-        // Versuche das Panel unter der Searchbox zu platzieren oder oben am Body
-        const header = document.querySelector('header') || document.body;
-        header.after(panel);
+        // .prepend setzt es an den Anfang des Ziel-Elements
+        const target = document.body; 
+        target.prepend(panel);
     };
 
-    // --- CORE FUNKTIONEN ---
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+    // --- BATCH LOGIK ---
     const processSongs = async () => {
         const matchStr = document.getElementById('match-input').value;
         const replaceStr = document.getElementById('replace-input').value;
         const isRegex = document.getElementById('is-regex').checked;
 
-        if (!matchStr) return alert("Bitte Suchstring eingeben!");
+        if (!matchStr) return;
+        
+        isRunning = true;
+        document.getElementById('run-rename').style.display = 'none';
+        document.getElementById('stop-rename').style.display = 'inline-block';
+        
         saveHistory(matchStr, replaceStr);
 
-        // Finde alle Zeilen basierend auf deiner Strukturbeschreibung
         const rows = document.querySelectorAll('.clip-row');
-        console.log(`Starte Batch für ${rows.length} Zeilen...`);
-
+        
         for (const row of rows) {
-            // Finde das Link-Element, das den Titel enthält
+            if (!isRunning) break;
+
             const titleLink = row.querySelector('a[href*="/song/"]');
             if (!titleLink) continue;
 
             const oldTitle = titleLink.innerText.trim();
             let newTitle = "";
 
-            // Transformation berechnen
             try {
                 if (isRegex) {
                     const re = new RegExp(matchStr, 'g');
@@ -75,75 +75,73 @@
                         newTitle = oldTitle.split(matchStr).join(replaceStr);
                     }
                 }
-            } catch (e) {
-                console.error("Regex Fehler:", e);
-                break;
-            }
+            } catch (e) { console.error("Regex Error", e); break; }
 
-            // Wenn Änderung nötig, UI-Workflow starten
             if (newTitle && newTitle !== oldTitle) {
-                console.log(`Renaming: "${oldTitle}" -> "${newTitle}"`);
-                
-                // 1. Edit Button finden (via aria-label wie von dir beschrieben)
+                // Scroll in View, damit Buttons klickbar sind
+                row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                await sleep(200);
+
                 const editBtn = row.querySelector('button[aria-label*="Edit title"]');
-                if (!editBtn) continue;
-                
-                editBtn.click();
-                await sleep(400); // Warten bis Input erscheint
+                if (editBtn) {
+                    editBtn.click();
+                    await sleep(500);
 
-                // 2. Input Feld finden
-                const input = row.querySelector('input[maxlength="80"]');
-                if (input) {
-                    input.value = newTitle;
-                    input.dispatchEvent(new Event('input', { bubbles: true }));
-                    await sleep(100);
+                    const input = row.querySelector('input[maxlength="80"]');
+                    if (input) {
+                        input.value = newTitle;
+                        input.dispatchEvent(new Event('input', { bubbles: true }));
+                        await sleep(200);
 
-                    // 3. Save Button finden
-                    const saveBtn = row.querySelector('button[aria-label*="Save title"]');
-                    if (saveBtn) {
-                        saveBtn.click();
-                        await sleep(600); // Pause für API Sync
+                        const saveBtn = row.querySelector('button[aria-label*="Save title"]');
+                        if (saveBtn) {
+                            saveBtn.click();
+                            await sleep(1000); // Mehr Zeit für den Server-Sync
+                        }
                     }
                 }
             }
         }
-        alert("Batch abgeschlossen!");
+
+        stopProcess();
     };
 
-    // --- HISTORY HANDLING ---
+    const stopProcess = () => {
+        isRunning = false;
+        document.getElementById('run-rename').style.display = 'inline-block';
+        document.getElementById('stop-rename').style.display = 'none';
+    };
+
+    // --- HISTORY ---
     const saveHistory = (m, r) => {
-        let history = JSON.parse(localStorage.getItem('suno-rename-hist') || '[]');
-        // Duplikate vermeiden
-        history = history.filter(h => h.m !== m);
+        let history = JSON.parse(localStorage.getItem('suno-hist') || '[]');
+        history = history.filter(h => h.m !== m).slice(0, 5);
         history.unshift({m, r});
-        history = history.slice(0, 8);
-        localStorage.setItem('suno-rename-hist', JSON.stringify(history));
+        localStorage.setItem('suno-hist', JSON.stringify(history));
         renderHistory();
     };
 
     const renderHistory = () => {
-        const list = document.getElementById('history-list');
-        const history = JSON.parse(localStorage.getItem('suno-rename-hist') || '[]');
-        list.innerHTML = history.map(h => 
-            `<span style="cursor:pointer; text-decoration:underline; margin-right:12px; display:inline-block;" title="Klicken zum Laden">
-                ${h.m} → ${h.r}
-            </span>`
+        const span = document.getElementById('history-items');
+        const history = JSON.parse(localStorage.getItem('suno-hist') || '[]');
+        span.innerHTML = history.map(h => 
+            `<span style="cursor:pointer; text-decoration:underline; margin: 0 5px;" title="${h.m} -> ${h.r}">${h.m.substring(0,10)}...</span>`
         ).join('');
-
-        // Event Listener für History-Items
-        list.querySelectorAll('span').forEach((span, idx) => {
-            span.onclick = () => {
-                document.getElementById('match-input').value = history[idx].m;
-                document.getElementById('replace-input').value = history[idx].r;
+        
+        span.querySelectorAll('span').forEach((el, i) => {
+            el.onclick = () => {
+                document.getElementById('match-input').value = history[i].m;
+                document.getElementById('replace-input').value = history[i].r;
             };
         });
     };
 
-    // --- INITIALISIERUNG ---
+    // INIT
     setTimeout(() => {
         createUI();
         renderHistory();
         document.getElementById('run-rename').onclick = processSongs;
-    }, 2500);
+        document.getElementById('stop-rename').onclick = stopProcess;
+    }, 2000);
 
 })();
