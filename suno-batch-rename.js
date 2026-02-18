@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Suno Song Renamer Pro (Overlay Edition)
+// @name         Suno Song Renamer Elite
 // @namespace    http://tampermonkey.net/
-// @version      1.4
-// @description  Batch rename via Overlay-Modal, triggered by a button next to filter.
+// @version      1.5
+// @description  Compact UI, Preview-Mode, ID-based renaming
 // @author       Coding-Assistant
 // @match        https://suno.com/*
 // @grant        none
@@ -12,221 +12,178 @@
     'use strict';
 
     let isRunning = false;
+    let pendingChanges = [];
 
-    // --- STYLES ---
     const styles = `
-        #suno-rename-trigger {
-            background: #27272a;
-            border: 1px solid #3f3f46;
-            color: #fff;
-            padding: 4px 12px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: 500;
-            display: flex;
-            align-items: center;
-            margin-right: 8px;
-        }
-        #suno-rename-trigger:hover { background: #3f3f46; }
-        
         #suno-rename-modal {
-            display: none;
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: #18181b;
-            border: 1px solid #3f3f46;
-            padding: 24px;
-            border-radius: 12px;
-            z-index: 10001;
-            width: 450px;
-            box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5);
-            font-family: sans-serif;
-        }
-        #suno-rename-backdrop {
-            display: none;
-            position: fixed;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.7);
-            z-index: 10000;
+            position: fixed; top: 10px; right: 10px; width: 320px;
+            background: #111; border: 1px solid #333; color: #eee;
+            padding: 10px; border-radius: 8px; z-index: 10001;
+            font-family: ui-sans-serif, system-ui; box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            display: none; font-size: 12px;
         }
         .suno-input {
-            width: 100%; background: #09090b; border: 1px solid #3f3f46;
-            color: white; padding: 10px; border-radius: 6px; margin-bottom: 12px;
+            width: 100%; background: #000; border: 1px solid #444;
+            color: #fff; padding: 4px 8px; border-radius: 4px; margin-bottom: 6px; box-sizing: border-box;
         }
-        .suno-btn {
-            padding: 10px 20px; border-radius: 6px; border: none; font-weight: bold; cursor: pointer;
+        .preview-box {
+            max-height: 200px; overflow-y: auto; background: #050505;
+            border: 1px solid #222; margin: 8px 0; padding: 5px; border-radius: 4px;
         }
+        .preview-item { border-bottom: 1px dashed #333; padding: 4px 0; margin-bottom: 4px; }
+        .old-t { color: #f87171; text-decoration: line-through; display: block; }
+        .new-t { color: #4ade80; display: block; font-weight: bold; }
+        .suno-btn { padding: 4px 12px; border-radius: 4px; border: none; cursor: pointer; font-weight: bold; font-size: 11px; }
+        #suno-rename-trigger { background: #27272a; border: 1px solid #3f3f46; color: #fff; padding: 4px 10px; border-radius: 6px; cursor: pointer; margin-right: 8px; font-size: 12px; }
     `;
 
     const styleSheet = document.createElement("style");
     styleSheet.innerText = styles;
     document.head.appendChild(styleSheet);
 
-    // --- UI ELEMENTE ERSTELLEN ---
     const setupUI = () => {
-        // Modal & Backdrop
-        const backdrop = document.createElement('div');
-        backdrop.id = 'suno-rename-backdrop';
-        
         const modal = document.createElement('div');
         modal.id = 'suno-rename-modal';
         modal.innerHTML = `
-            <h3 style="margin-top:0; color:#fff;">Batch Rename</h3>
-            <input id="match-input" class="suno-input" placeholder="Suchen (Regex/Text)...">
-            <input id="replace-input" class="suno-input" placeholder="Ersetzen durch...">
-            <div style="margin-bottom: 15px;">
-                <label style="color:#eee; cursor:pointer;"><input type="checkbox" id="is-regex"> Als Regex behandeln</label>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <b style="color:#3b82f6;">Batch Rename</b>
+                <span id="close-modal" style="cursor:pointer; padding:0 5px;">✕</span>
             </div>
-            <div id="history-section" style="margin-bottom: 15px; font-size:12px; color:#a1a1aa;">
-                <strong>History:</strong> <div id="history-items" style="margin-top:5px; display:flex; flex-wrap:wrap; gap:5px;"></div>
+            <input id="match-input" class="suno-input" placeholder="Match (Regex/String)">
+            <input id="replace-input" class="suno-input" placeholder="Replace">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <label style="cursor:pointer;"><input type="checkbox" id="is-regex"> Regex</label>
+                <button id="preview-btn" class="suno-btn" style="background:#3b82f6; color:white;">Preview</button>
             </div>
-            <div style="display:flex; gap:10px; justify-content: flex-end;">
-                <button id="close-modal" class="suno-btn" style="background:#3f3f46; color:white;">Abbrechen</button>
-                <button id="run-rename" class="suno-btn" style="background:#16a34a; color:white;">Starten</button>
+            <div id="preview-container" class="preview-box" style="display:none;"></div>
+            <div id="history-section" style="margin: 8px 0; font-size:10px; color:#888;">
+                History: <span id="history-items"></span>
+            </div>
+            <div style="display:flex; gap:6px; align-items:center; justify-content:flex-end; border-top:1px solid #222; padding-top:8px;">
+                <span id="count-display" style="color:#aaa; font-weight:bold;"></span>
+                <button id="run-rename" class="suno-btn" style="background:#16a34a; color:white; display:none;">Start</button>
                 <button id="stop-rename" class="suno-btn" style="background:#dc2626; color:white; display:none;">Stop</button>
             </div>
-            <div id="status-info" style="margin-top:15px; font-size:12px; color:#22c55e; text-align:center;"></div>
         `;
-        document.body.appendChild(backdrop);
         document.body.appendChild(modal);
 
-        // Trigger Button Injection
-        const injectTrigger = () => {
+        const injectBtn = () => {
             if (document.getElementById('suno-rename-trigger')) return;
-            // Suche Filter-Button (Suno nutzt oft aria-label oder Texte für Filter)
             const filterBtn = document.querySelector('button[aria-label*="filter"], button[aria-label*="Filter"]');
             if (filterBtn) {
                 const btn = document.createElement('button');
                 btn.id = 'suno-rename-trigger';
-                btn.innerHTML = 'Rename';
+                btn.innerText = 'Rename';
                 filterBtn.parentNode.insertBefore(btn, filterBtn);
-                
-                btn.onclick = () => {
-                    modal.style.display = 'block';
-                    backdrop.style.display = 'block';
-                    renderHistory();
-                };
+                btn.onclick = () => { modal.style.display = 'block'; renderHistory(); };
             }
         };
 
-        // Überwache das DOM, um den Button einzufügen, wenn der Workspace geladen wird
-        const observer = new MutationObserver(injectTrigger);
+        const observer = new MutationObserver(injectBtn);
         observer.observe(document.body, { childList: true, subtree: true });
-        
-        // Event Listener
-        document.getElementById('close-modal').onclick = () => {
-            modal.style.display = 'none';
-            backdrop.style.display = 'none';
-        };
-        document.getElementById('run-rename').onclick = processSongs;
+
+        document.getElementById('close-modal').onclick = () => modal.style.display = 'none';
+        document.getElementById('preview-btn').onclick = generatePreview;
+        document.getElementById('run-rename').onclick = startExecution;
         document.getElementById('stop-rename').onclick = () => { isRunning = false; };
     };
 
-    // --- LOGIK (ROBUST RE-SCAN) ---
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-    const processSongs = async () => {
-        const matchStr = document.getElementById('match-input').value;
-        const replaceStr = document.getElementById('replace-input').value;
-        const isRegex = document.getElementById('is-regex').checked;
-        const statusEl = document.getElementById('status-info');
+    const generatePreview = () => {
+        const m = document.getElementById('match-input').value;
+        const r = document.getElementById('replace-input').value;
+        const isRe = document.getElementById('is-regex').checked;
+        if (!m) return;
 
-        if (!matchStr) return;
-        
+        pendingChanges = [];
+        const rows = document.querySelectorAll('.clip-row');
+        let html = '';
+
+        rows.forEach(row => {
+            const link = row.querySelector('a[href*="/song/"]');
+            if (!link) return;
+            const id = link.getAttribute('href').split('/').pop();
+            const oldT = link.innerText.trim();
+            let newT = isRe ? oldT.replace(new RegExp(m, 'g'), r) : oldT.split(m).join(r);
+
+            if (newT !== oldT) {
+                pendingChanges.push({ id, oldT, newT });
+                html += `<div class="preview-item"><span class="old-t">${oldT}</span><span class="new-t">${newT}</span></div>`;
+            }
+        });
+
+        const container = document.getElementById('preview-container');
+        container.innerHTML = html || '<div style="color:#888;">No matches found.</div>';
+        container.style.display = 'block';
+        document.getElementById('run-rename').style.display = html ? 'inline-block' : 'none';
+        document.getElementById('count-display').innerText = `0/${pendingChanges.length}`;
+    };
+
+    const startExecution = async () => {
         isRunning = true;
         document.getElementById('run-rename').style.display = 'none';
         document.getElementById('stop-rename').style.display = 'inline-block';
-        saveHistory(matchStr, replaceStr);
+        saveHistory(document.getElementById('match-input').value, document.getElementById('replace-input').value);
 
-        let processedCount = 0;
-        let hasChangedSomething = true;
-
-        while (isRunning && hasChangedSomething) {
-            hasChangedSomething = false;
-            const rows = Array.from(document.querySelectorAll('.clip-row'));
+        const total = pendingChanges.length;
+        for (let i = 0; i < total; i++) {
+            if (!isRunning) break;
+            const change = pendingChanges[i];
             
-            for (let i = 0; i < rows.length; i++) {
-                if (!isRunning) break;
-                const row = rows[i];
-                const titleLink = row.querySelector('a[href*="/song/"]');
-                if (!titleLink) continue;
+            // Find row by song ID in href
+            const row = document.querySelector(`.clip-row:has(a[href*="${change.id}"])`);
+            if (!row) {
+                console.warn(`Song ${change.id} not in DOM, skipping...`);
+                continue;
+            }
 
-                const oldTitle = titleLink.innerText.trim();
-                let newTitle = "";
+            row.scrollIntoView({ behavior: 'instant', block: 'center' });
+            await sleep(400);
 
-                try {
-                    if (isRegex) {
-                        const re = new RegExp(matchStr, 'g');
-                        if (re.test(oldTitle)) newTitle = oldTitle.replace(re, replaceStr);
-                    } else {
-                        if (oldTitle.includes(matchStr)) newTitle = oldTitle.split(matchStr).join(replaceStr);
-                    }
-                } catch (e) { console.error(e); isRunning = false; break; }
-
-                if (newTitle && newTitle !== oldTitle) {
-                    statusEl.innerText = `Ändere: ${oldTitle}...`;
-                    row.scrollIntoView({ behavior: 'instant', block: 'center' });
-                    
-                    const editBtn = row.querySelector('button[aria-label*="Edit title"]');
-                    if (editBtn) {
-                        editBtn.click();
-                        await sleep(600);
-                        const input = row.querySelector('input[maxlength="80"]');
-                        if (input) {
-                            input.value = newTitle;
-                            input.dispatchEvent(new Event('input', { bubbles: true }));
-                            await sleep(300);
-                            const saveBtn = row.querySelector('button[aria-label*="Save title"]');
-                            if (saveBtn) {
-                                saveBtn.click();
-                                processedCount++;
-                                hasChangedSomething = true;
-                                await sleep(1200);
-                                break; // Zurück zum Anfang der while-Schleife (DOM Re-Scan)
-                            }
-                        }
+            const editBtn = row.querySelector('button[aria-label*="Edit title"]');
+            if (editBtn) {
+                editBtn.click();
+                await sleep(500);
+                const input = row.querySelector('input[maxlength="80"]');
+                if (input) {
+                    input.value = change.newT;
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    await sleep(300);
+                    const saveBtn = row.querySelector('button[aria-label*="Save title"]');
+                    if (saveBtn) {
+                        saveBtn.click();
+                        document.getElementById('count-display').innerText = `${i+1}/${total}`;
+                        await sleep(1500); // Wait for API and DOM to settle
                     }
                 }
             }
-            if (!hasChangedSomething) isRunning = false;
         }
-
-        statusEl.innerText = `Abgeschlossen. ${processedCount} Songs bearbeitet.`;
-        document.getElementById('run-rename').style.display = 'inline-block';
+        isRunning = false;
         document.getElementById('stop-rename').style.display = 'none';
+        document.getElementById('count-display').innerText += ' - Done';
     };
 
-    // --- HISTORY (10 ITEMS) ---
     const saveHistory = (m, r) => {
-        let history = JSON.parse(localStorage.getItem('suno-hist-v3') || '[]');
-        history = history.filter(h => h.m !== m);
-        history.unshift({m, r});
-        history = history.slice(0, 10);
-        localStorage.setItem('suno-hist-v3', JSON.stringify(history));
+        let h = JSON.parse(localStorage.getItem('suno-h4') || '[]');
+        h = h.filter(x => x.m !== m).slice(0, 9);
+        h.unshift({m, r});
+        localStorage.setItem('suno-h4', JSON.stringify(h));
     };
 
     const renderHistory = () => {
-        const container = document.getElementById('history-items');
-        const history = JSON.parse(localStorage.getItem('suno-hist-v3') || '[]');
-        container.innerHTML = history.map((h, i) => 
-            `<button class="suno-btn" style="background:#27272a; color:#ccc; font-size:10px; padding:4px 8px;" data-idx="${i}">
-                ${h.m.substring(0,10)}..
-            </button>`
+        const h = JSON.parse(localStorage.getItem('suno-h4') || '[]');
+        document.getElementById('history-items').innerHTML = h.map((x, i) => 
+            `<span style="cursor:pointer; text-decoration:underline; margin-right:5px;" data-idx="${i}">${x.m.substring(0,8)}</span>`
         ).join('');
-        
-        container.querySelectorAll('button').forEach(btn => {
-            btn.onclick = () => {
-                const item = history[btn.dataset.idx];
+        document.querySelectorAll('#history-items span').forEach(el => {
+            el.onclick = () => {
+                const item = h[el.dataset.idx];
                 document.getElementById('match-input').value = item.m;
                 document.getElementById('replace-input').value = item.r;
             };
         });
     };
 
-    // INIT
     setTimeout(setupUI, 2000);
-
 })();
