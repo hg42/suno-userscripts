@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         Suno Song Renamer (Scroll-Aware)
+// @name         Suno Song Renamer Elite (Layout Fix)
 // @namespace    http://tampermonkey.net/
-// @version      1.6
-// @description  Deep-scans the library and renames only visible items to bypass virtual scrolling.
-// @author       Coding-Assistant
+// @version      1.7
+// @description  Batch rename with Layout-Refresh to fix disappearing list items.
+// @author       Gemini/Coding-Assistant
 // @match        https://suno.com/*
 // @grant        none
 // ==/UserScript==
@@ -12,22 +12,22 @@
     'use strict';
 
     let isRunning = false;
-    let processedIds = new Set(); // Verhindert Doppelt-Bearbeitung beim Scrollen
+    let processedIds = new Set();
 
     const styles = `
         #suno-rename-modal {
-            position: fixed; top: 10px; right: 10px; width: 300px;
+            position: fixed; top: 15px; right: 15px; width: 280px;
             background: #111; border: 1px solid #333; color: #eee;
-            padding: 8px; border-radius: 6px; z-index: 10001;
-            font-family: sans-serif; box-shadow: 0 4px 15px rgba(0,0,0,0.8);
+            padding: 10px; border-radius: 8px; z-index: 99999;
+            font-family: sans-serif; box-shadow: 0 8px 32px rgba(0,0,0,0.8);
             display: none; font-size: 11px;
         }
         .suno-input {
             width: 100%; background: #000; border: 1px solid #444;
-            color: #fff; padding: 4px; border-radius: 3px; margin-bottom: 4px; box-sizing: border-box;
+            color: #fff; padding: 5px; border-radius: 4px; margin-bottom: 5px; box-sizing: border-box;
         }
-        .suno-btn { padding: 3px 8px; border-radius: 3px; border: none; cursor: pointer; font-weight: bold; }
-        #suno-rename-trigger { background: #27272a; border: 1px solid #3f3f46; color: #fff; padding: 4px 10px; border-radius: 6px; cursor: pointer; margin-right: 8px; font-size: 12px; }
+        .suno-btn { padding: 4px 10px; border-radius: 4px; border: none; cursor: pointer; font-weight: bold; }
+        #suno-rename-trigger { background: #27272a; border: 1px solid #3f3f46; color: #fff; padding: 4px 12px; border-radius: 6px; cursor: pointer; margin-right: 8px; font-size: 12px; }
     `;
 
     const styleSheet = document.createElement("style");
@@ -38,20 +38,22 @@
         const modal = document.createElement('div');
         modal.id = 'suno-rename-modal';
         modal.innerHTML = `
-            <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
-                <b style="color:#3b82f6;">Renamer (Auto-Scroll)</b>
-                <span id="close-modal" style="cursor:pointer;">✕</span>
+            <div style="display:flex; justify-content:space-between; margin-bottom:8px; border-bottom: 1px solid #222; padding-bottom: 4px;">
+                <b style="color:#3b82f6;">Batch Renamer v1.7</b>
+                <span id="close-modal" style="cursor:pointer; opacity: 0.5;">✕</span>
             </div>
-            <input id="match-input" class="suno-input" placeholder="Match (Regex/String)">
-            <input id="replace-input" class="suno-input" placeholder="Replace">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <input id="match-input" class="suno-input" placeholder="Search (Regex/String)">
+            <input id="replace-input" class="suno-input" placeholder="Replace with">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
                 <label style="cursor:pointer;"><input type="checkbox" id="is-regex"> Regex</label>
-                <div id="history-items"></div>
+                <div id="history-items" style="display:flex; gap:3px;"></div>
             </div>
-            <div style="display:flex; gap:5px; align-items:center; justify-content:flex-end; border-top:1px solid #222; padding-top:5px;">
-                <span id="count-display" style="color:#aaa;">Processed: 0</span>
-                <button id="run-rename" class="suno-btn" style="background:#16a34a; color:white;">Start</button>
-                <button id="stop-rename" class="suno-btn" style="background:#dc2626; color:white; display:none;">Stop</button>
+            <div style="display:flex; gap:6px; align-items:center; justify-content:space-between; border-top:1px solid #222; padding-top:10px;">
+                <span id="count-display" style="color:#888;">Count: 0/0</span>
+                <div>
+                    <button id="run-rename" class="suno-btn" style="background:#16a34a; color:white;">Start</button>
+                    <button id="stop-rename" class="suno-btn" style="background:#dc2626; color:white; display:none;">Stop</button>
+                </div>
             </div>
         `;
         document.body.appendChild(modal);
@@ -76,9 +78,15 @@
 
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+    // Erzwingt eine Neuberechnung des Layouts
+    const refreshLayout = () => {
+        window.dispatchEvent(new Event('resize'));
+        // Kleiner Trick: Minimales Scrollen triggert oft den Virtual List Re-Render
+        window.scrollBy(0, 1);
+        window.scrollBy(0, -1);
+    };
+
     async function startBatch() {
-        isRunning = true;
-        processedIds.clear();
         const m = document.getElementById('match-input').value;
         const r = document.getElementById('replace-input').value;
         const isRe = document.getElementById('is-regex').checked;
@@ -87,14 +95,16 @@
         if (!m) return;
         saveHistory(m, r);
 
+        isRunning = true;
+        processedIds.clear();
         document.getElementById('run-rename').style.display = 'none';
         document.getElementById('stop-rename').style.display = 'inline-block';
 
-        let consecutiveEmptyChecks = 0;
+        let consecutiveNoMatches = 0;
 
         while (isRunning) {
             const rows = Array.from(document.querySelectorAll('.clip-row'));
-            let foundInThisWindow = false;
+            let matchFoundInView = false;
 
             for (const row of rows) {
                 if (!isRunning) break;
@@ -106,10 +116,19 @@
                 if (processedIds.has(id)) continue;
 
                 const oldT = link.innerText.trim();
-                let newT = isRe ? oldT.replace(new RegExp(m, 'g'), r) : oldT.split(m).join(r);
+                let newT = "";
 
-                if (newT !== oldT) {
-                    foundInThisWindow = true;
+                try {
+                    if (isRe) {
+                        const re = new RegExp(m, 'g');
+                        if (re.test(oldT)) newT = oldT.replace(re, r);
+                    } else if (oldT.includes(m)) {
+                        newT = oldT.split(m).join(r);
+                    }
+                } catch (e) { console.error(e); isRunning = false; break; }
+
+                if (newT && newT !== oldT) {
+                    matchFoundInView = true;
                     row.scrollIntoView({ behavior: 'instant', block: 'center' });
                     await sleep(300);
 
@@ -126,48 +145,45 @@
                             if (saveBtn) {
                                 saveBtn.click();
                                 processedIds.add(id);
-                                countDisplay.innerText = `Processed: ${processedIds.size}`;
-                                await sleep(1200);
+                                countDisplay.innerText = `Count: ${processedIds.size}`;
+                                await sleep(1000); 
+                                refreshLayout(); // Wichtig: Suno zwingen die Liste zu prüfen
+                                await sleep(500); 
                             }
                         }
                     }
                 } else {
-                    // Auch wenn es kein Match ist, als verarbeitet markieren
-                    processedIds.add(id);
+                    processedIds.add(id); // Überspringen, aber als verarbeitet markieren
                 }
             }
 
-            // Automatischer Scroll nach unten, um neue Elemente zu laden
             if (isRunning) {
-                const scrollContainer = document.querySelector('main') || window;
-                window.scrollBy(0, 400); 
-                await sleep(800); // Zeit für Suno zum Nachladen
+                window.scrollBy(0, 500);
+                await sleep(1000);
+                
+                if (!matchFoundInView) consecutiveNoMatches++;
+                else consecutiveNoMatches = 0;
 
-                // Check if we reached the bottom (very simple check)
-                if (!foundInThisWindow) consecutiveEmptyChecks++;
-                else consecutiveEmptyChecks = 0;
-
-                if (consecutiveEmptyChecks > 10) break; // Ende der Liste vermutet
+                if (consecutiveNoMatches > 12) break; // Liste zu Ende
             }
         }
 
         isRunning = false;
         document.getElementById('run-rename').style.display = 'inline-block';
         document.getElementById('stop-rename').style.display = 'none';
-        countDisplay.innerText += ' (Finished)';
     }
 
     const saveHistory = (m, r) => {
-        let h = JSON.parse(localStorage.getItem('suno-h5') || '[]');
+        let h = JSON.parse(localStorage.getItem('suno-h6') || '[]');
         h = h.filter(x => x.m !== m).slice(0, 10);
         h.unshift({m, r});
-        localStorage.setItem('suno-h5', JSON.stringify(h));
+        localStorage.setItem('suno-h6', JSON.stringify(h));
     };
 
     const renderHistory = () => {
-        const h = JSON.parse(localStorage.getItem('suno-h5') || '[]');
+        const h = JSON.parse(localStorage.getItem('suno-h6') || '[]');
         document.getElementById('history-items').innerHTML = h.map((x, i) => 
-            `<span style="cursor:pointer; text-decoration:underline; color:#888; margin-right:4px;" data-idx="${i}">${x.m.substring(0,5)}</span>`
+            `<span style="cursor:pointer; text-decoration:underline; color:#666; margin-right:4px;" data-idx="${i}">${x.m.substring(0,4)}..</span>`
         ).join('');
         document.querySelectorAll('#history-items span').forEach(el => {
             el.onclick = () => {
