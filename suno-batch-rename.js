@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Suno Song Renamer Elite (v2.5)
+// @name         Suno Song Renamer Elite (v2.6)
 // @namespace    http://tampermonkey.net/
-// @version      2.5
-// @description  Blue Rename button, stable toolbar injection, full history chips.
+// @version      2.6
+// @description  Yellow confirmation highlight after successful rename.
 // @author       Gemini/Coding-Assistant
 // @match        https://suno.com/*
 // @grant        none
@@ -70,12 +70,11 @@
 
     const setupUI = () => {
         if (document.getElementById('suno-rename-modal')) return;
-        
         const modal = document.createElement('div');
         modal.id = 'suno-rename-modal';
         modal.innerHTML = `
             <div style="display:flex; justify-content:space-between; margin-bottom:10px; border-bottom: 1px solid #222; padding-bottom: 6px;">
-                <b style="color:#3b82f6;">BATCH RENAMER v2.5</b>
+                <b style="color:#3b82f6;">BATCH RENAMER v2.6</b>
                 <span id="close-modal" style="cursor:pointer; padding: 0 5px;">✕</span>
             </div>
             <div class="input-wrapper">
@@ -110,18 +109,12 @@
             const drop = document.getElementById('hist-dropdown');
             const targetInput = document.getElementById(type === 'm' ? 'match-input' : 'replace-input');
             const entries = h.map(x => type === 'm' ? x.m : x.r).filter(Boolean);
-            
             if (entries.length === 0) return;
             drop.innerHTML = [...new Set(entries)].map(val => `<div class="hist-item">${val}</div>`).join('');
             drop.style.display = 'block';
             drop.style.top = (targetInput.offsetTop + targetInput.offsetHeight) + 'px';
-            
             drop.querySelectorAll('.hist-item').forEach(item => {
-                item.onclick = () => {
-                    targetInput.value = item.innerText;
-                    drop.style.display = 'none';
-                    targetInput.focus();
-                };
+                item.onclick = () => { targetInput.value = item.innerText; drop.style.display = 'none'; targetInput.focus(); };
             });
         };
 
@@ -134,22 +127,15 @@
         if (document.getElementById('suno-rename-trigger')) return;
         const allButtons = Array.from(document.querySelectorAll('button'));
         const filterBtn = allButtons.find(b => b.innerText.includes('Filters'));
-      
         if (filterBtn && filterBtn.parentNode && filterBtn.parentNode.parentNode) {
             const btn = document.createElement('button');
             btn.id = 'suno-rename-trigger';
             btn.innerText = 'Rename';
-            
             filterBtn.parentNode.parentNode.append(btn);
-            
             btn.addEventListener('click', (e) => {
                 e.preventDefault(); e.stopPropagation();
                 const modal = document.getElementById('suno-rename-modal');
-                if (modal) {
-                    modal.style.display = 'block';
-                    renderChips();
-                    setTimeout(() => document.getElementById('match-input').focus(), 50);
-                }
+                if (modal) { modal.style.display = 'block'; renderChips(); setTimeout(() => document.getElementById('match-input').focus(), 50); }
             });
         }
     };
@@ -158,11 +144,7 @@
         const h = JSON.parse(localStorage.getItem('suno-h6') || '[]');
         const container = document.getElementById('chip-container');
         if (!container) return;
-        container.innerHTML = h.map((x, i) => `
-            <div class="history-chip" data-idx="${i}" title="${x.m} to ${x.r}">
-                ${x.m} <span class="chip-arrow">→</span> ${x.r}
-            </div>
-        `).join('');
+        container.innerHTML = h.map((x, i) => `<div class="history-chip" data-idx="${i}">${x.m} <span class="chip-arrow">→</span> ${x.r}</div>`).join('');
         container.querySelectorAll('.history-chip').forEach(chip => {
             chip.onclick = () => {
                 const item = h[chip.dataset.idx];
@@ -188,8 +170,6 @@
 
         while (isRunning) {
             const rows = Array.from(document.querySelectorAll('.clip-row'));
-            let matchFoundInCycle = false;
-
             for (const row of rows) {
                 if (!isRunning) break;
                 const link = row.querySelector('a[href*="/song/"]');
@@ -199,15 +179,10 @@
 
                 const oldT = link.innerText.trim();
                 let newT = "";
-                try {
-                    newT = isRe ? oldT.replace(new RegExp(m, 'g'), r) : oldT.split(m).join(r);
-                } catch(e) { isRunning = false; break; }
+                try { newT = isRe ? oldT.replace(new RegExp(m, 'g'), r) : oldT.split(m).join(r); } catch(e) { isRunning = false; break; }
 
                 if (newT !== oldT) {
-                    matchFoundInCycle = true;
                     row.scrollIntoView({ behavior: 'instant', block: 'center' });
-                    link.style.color = '#fbbf24'; 
-                    link.style.fontWeight = 'bold';
                     await sleep(400);
 
                     const editBtn = row.querySelector('button[aria-label*="Edit title"]');
@@ -222,15 +197,17 @@
                             const saveBtn = row.querySelector('button[aria-label*="Save title"]');
                             if (saveBtn) {
                                 saveBtn.click();
+                                // CONFIRMATION HIGHLIGHT: Only set yellow AFTER save
+                                link.style.color = '#fbbf24'; 
+                                link.style.fontWeight = 'bold';
+                                
                                 processedIds.add(id);
                                 document.getElementById('count-display').innerText = `Count: ${processedIds.size}`;
-                                await sleep(1200); 
+                                await sleep(1000); // Visual pause to see the yellow entry
                                 refreshLayout();
                             }
                         }
                     }
-                    link.style.color = '';
-                    link.style.fontWeight = '';
                 } else { processedIds.add(id); }
             }
             if (isRunning) { window.scrollBy(0, 500); await sleep(1000); }
@@ -249,9 +226,6 @@
     };
 
     setupUI();
-    const observer = new MutationObserver(() => {
-        setupUI();
-        injectTrigger();
-    });
+    const observer = new MutationObserver(() => { setupUI(); injectTrigger(); });
     observer.observe(document.body, { childList: true, subtree: true });
 })();
