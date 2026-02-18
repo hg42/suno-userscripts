@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Suno Song Renamer Elite (v2.6)
+// @name         Suno Song Renamer Elite (v2.7)
 // @namespace    http://tampermonkey.net/
-// @version      2.6
+// @version      2.7
 // @description  Yellow confirmation highlight after successful rename.
 // @author       Gemini/Coding-Assistant
 // @match        https://suno.com/*
@@ -155,7 +155,7 @@
     };
 
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-    const refreshLayout = () => { window.dispatchEvent(new Event('resize')); window.scrollBy(0, 10); window.scrollBy(0, -10); };
+    const refreshLayout = () => { window.dispatchEvent(new Event('resize')); window.scrollBy(0, 1); window.scrollBy(0, -1); };
 
     async function startBatch() {
         const m = document.getElementById('match-input').value;
@@ -189,7 +189,7 @@
                     if (editBtn) {
                         editBtn.click();
                         await sleep(600);
-                        const input = row.querySelector('input[maxlength="80"]');
+                        const input = row.querySelector('input');
                         if (input) {
                             input.value = newT;
                             input.dispatchEvent(new Event('input', { bubbles: true }));
