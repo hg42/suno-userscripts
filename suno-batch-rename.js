@@ -32,16 +32,16 @@
             user-select: none;
         }
         .suno-btn { padding: 5px 14px; border-radius: 20px; border: none; cursor: pointer; font-weight: bold; }
-        
-        #suno-rename-trigger { 
-            background: #3b82f6; color: #fff; 
+
+        #suno-rename-trigger {
+            background: #3b82f6; color: #fff;
             padding: 0 16px; border-radius: 999px;
             cursor: pointer; margin-left: 8px; font-size: 12px; font-weight: 600;
             display: inline-flex; align-items: center; height: 32px; border: none;
             transition: background 0.2s;
         }
         #suno-rename-trigger:hover { background: #2563eb; }
-        
+
         #hist-dropdown {
             position: absolute; background: #1a1a1a; border: 1px solid #444;
             width: 100%; z-index: 1000000; display: none; max-height: 150px; overflow-y: auto;
@@ -103,7 +103,7 @@
         document.getElementById('close-modal').onclick = () => modal.style.display = 'none';
         document.getElementById('run-rename').onclick = startBatch;
         document.getElementById('stop-rename').onclick = () => { isRunning = false; };
-        
+
         const showHist = (type) => {
             const h = JSON.parse(localStorage.getItem('suno-h6') || '[]');
             const drop = document.getElementById('hist-dropdown');
@@ -155,7 +155,7 @@
     };
 
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-    const refreshLayout = () => { window.dispatchEvent(new Event('resize')); window.scrollBy(0, 1); window.scrollBy(0, -1); };
+    const refreshLayout = () => { window.dispatchEvent(new Event('resize')); window.scrollBy(0, 10); window.scrollBy(0, -10); };
 
     async function startBatch() {
         const m = document.getElementById('match-input').value;
@@ -198,9 +198,9 @@
                             if (saveBtn) {
                                 saveBtn.click();
                                 // CONFIRMATION HIGHLIGHT: Only set yellow AFTER save
-                                link.style.color = '#fbbf24'; 
+                                link.style.color = '#fbbf24';
                                 link.style.fontWeight = 'bold';
-                                
+
                                 processedIds.add(id);
                                 document.getElementById('count-display').innerText = `Count: ${processedIds.size}`;
                                 await sleep(1000); // Visual pause to see the yellow entry
