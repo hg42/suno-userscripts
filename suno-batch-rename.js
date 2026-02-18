@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Suno Song Renamer Elite (Fixed Placement)
+// @name         Suno Song Renamer Elite (No Self-Injection)
 // @namespace    http://tampermonkey.net/
-// @version      1.9
-// @description  Precise button injection next to search and pill styling.
+// @version      2.0
+// @description  Fixed the "button-in-modal" bug by excluding the script UI from search.
 // @author       Gemini/Coding-Assistant
 // @match        https://suno.com/*
 // @grant        none
@@ -26,18 +26,12 @@
             width: 100%; background: #000; border: 1px solid #444;
             color: #fff; padding: 5px; border-radius: 4px; margin-bottom: 5px; box-sizing: border-box;
         }
-        .suno-btn { 
-            padding: 4px 12px; border-radius: 20px; 
-            border: none; cursor: pointer; font-weight: bold; 
-        }
+        .suno-btn { padding: 4px 12px; border-radius: 20px; border: none; cursor: pointer; font-weight: bold; }
         #suno-rename-trigger { 
-            background: #3b82f6; border: none; color: #fff; 
-            padding: 4px 14px; border-radius: 999px;
-            cursor: pointer; margin-left: 8px; font-size: 11px; 
-            font-weight: 600; white-space: nowrap;
-            height: 28px; display: inline-flex; align-items: center;
+            background: #3b82f6; color: #fff; padding: 4px 14px; border-radius: 999px;
+            cursor: pointer; margin-left: 8px; font-size: 11px; font-weight: 600; 
+            white-space: nowrap; height: 28px; display: inline-flex; align-items: center;
         }
-        #suno-rename-trigger:hover { background: #2563eb; }
     `;
 
     const styleSheet = document.createElement("style");
@@ -49,17 +43,17 @@
         modal.id = 'suno-rename-modal';
         modal.innerHTML = `
             <div style="display:flex; justify-content:space-between; margin-bottom:8px; border-bottom: 1px solid #222; padding-bottom: 4px;">
-                <b style="color:#3b82f6;">Batch Renamer v1.9</b>
+                <b style="color:#3b82f6;">Batch Renamer v2.0</b>
                 <span id="close-modal" style="cursor:pointer; opacity: 0.5;">✕</span>
             </div>
-            <input id="match-input" class="suno-input" placeholder="Search (Regex/String)">
-            <input id="replace-input" class="suno-input" placeholder="Replace with">
+            <input id="match-input" class="suno-input" placeholder="Search Pattern">
+            <input id="replace-input" class="suno-input" placeholder="Replace Pattern">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
                 <label style="cursor:pointer;"><input type="checkbox" id="is-regex"> Regex</label>
                 <div id="history-items" style="display:flex; gap:3px;"></div>
             </div>
             <div style="display:flex; gap:6px; align-items:center; justify-content:space-between; border-top:1px solid #222; padding-top:10px;">
-                <span id="count-display" style="color:#888;">Count: 0/0</span>
+                <span id="count-display" style="color:#888;">Count: 0</span>
                 <div>
                     <button id="run-rename" class="suno-btn" style="background:#16a34a; color:white;">Start</button>
                     <button id="stop-rename" class="suno-btn" style="background:#dc2626; color:white; display:none;">Stop</button>
@@ -71,24 +65,20 @@
         const injectBtn = () => {
             if (document.getElementById('suno-rename-trigger')) return;
             
-            // Wir suchen das Search-Input Feld
-            const searchInput = document.querySelector('input[type="search"], input[placeholder*="Search"]');
+            // WICHTIG: Suche NUR Inputs, die NICHT in unserem Modal liegen
+            const searchInput = document.querySelector('input[placeholder*="Search"]:not(#suno-rename-modal input)');
+            
             if (searchInput) {
-                // Wir gehen hoch zum direkten Container des Inputs, um daneben zu landen
                 const container = searchInput.parentElement;
                 if (container) {
                     const btn = document.createElement('button');
                     btn.id = 'suno-rename-trigger';
                     btn.innerText = 'Rename';
-                    
-                    // Wir erzwingen, dass der Container den Button nebeneinander anzeigt
                     container.style.display = 'flex';
                     container.style.alignItems = 'center';
-                    
                     container.appendChild(btn);
                     btn.onclick = (e) => {
                         e.preventDefault();
-                        e.stopPropagation();
                         modal.style.display = 'block'; 
                         renderHistory(); 
                     };
@@ -96,20 +86,15 @@
             }
         };
 
-        const observer = new MutationObserver(injectBtn);
-        observer.observe(document.body, { childList: true, subtree: true });
-
+        new MutationObserver(injectBtn).observe(document.body, { childList: true, subtree: true });
         document.getElementById('close-modal').onclick = () => modal.style.display = 'none';
         document.getElementById('run-rename').onclick = startBatch;
         document.getElementById('stop-rename').onclick = () => { isRunning = false; };
     };
 
-    // ... (Logik-Teil bleibt identisch wie in v1.8) ...
+    // ... (Logik-Teil bleibt identisch wie zuvor) ...
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-    const refreshLayout = () => {
-        window.dispatchEvent(new Event('resize'));
-        window.scrollBy(0, 1); window.scrollBy(0, -1);
-    };
+    const refreshLayout = () => { window.dispatchEvent(new Event('resize')); window.scrollBy(0, 1); window.scrollBy(0, -1); };
 
     async function startBatch() {
         const m = document.getElementById('match-input').value;
