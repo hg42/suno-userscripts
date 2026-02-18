@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Suno Song Renamer Pro
+// @name         Suno Song Renamer Pro (Stable Selectors)
 // @namespace    http://tampermonkey.net/
-// @version      1.0
-// @description  Batch rename Suno songs with Regex and History
+// @version      1.1
+// @description  Batch rename Suno songs using stable attribute selectors and history
 // @author       Coding-Assistant
 // @match        https://suno.com/*
 // @grant        none
@@ -11,123 +11,139 @@
 (function() {
     'use strict';
 
-    // Konfiguration der Selektoren (muss ggf. bei Suno-Updates angepasst werden)
-    const SELECTORS = {
-        songItem: '[data-testid="song-row"]', // Beispiel-Selektor für die Zeile
-        titleDisplay: '.song-title-class',    // Die Klasse, die den Namen anzeigt
-        editButton: 'button[aria-label="Edit"]',
-        inputField: 'input[name="title"]',
-        saveButton: 'button[type="submit"]'
+    // --- UI LOGIK ---
+    const createUI = () => {
+        const panel = document.createElement('div');
+        panel.id = 'suno-renamer-ui';
+        panel.style = "background: #18181b; color: #efeff1; padding: 15px; border-bottom: 2px solid #3f3f46; font-family: ui-sans-serif, system-ui; z-index: 9999; position: relative;";
+        
+        panel.innerHTML = `
+            <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center; max-width: 1200px; margin: 0 auto;">
+                <div style="flex: 2; min-width: 200px;">
+                    <input id="match-input" placeholder="Suchen nach (Regex/String)..." style="width: 100%; background: #09090b; border: 1px solid #3f3f46; color: white; padding: 8px; border-radius: 4px;">
+                </div>
+                <div style="flex: 2; min-width: 200px;">
+                    <input id="replace-input" placeholder="Ersetzen durch..." style="width: 100%; background: #09090b; border: 1px solid #3f3f46; color: white; padding: 8px; border-radius: 4px;">
+                </div>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <label style="cursor:pointer; display:flex; align-items:center; gap:5px;"><input type="checkbox" id="is-regex"> Regex</label>
+                    <button id="run-rename" style="background: #3b82f6; color: white; border: none; padding: 8px 20px; border-radius: 4px; cursor: pointer; font-weight: 600;">Start Batch</button>
+                </div>
+                <div id="history-container" style="width: 100%; font-size: 12px; color: #a1a1aa;">
+                    Verlauf: <span id="history-list"></span>
+                </div>
+            </div>
+        `;
+
+        // Versuche das Panel unter der Searchbox zu platzieren oder oben am Body
+        const header = document.querySelector('header') || document.body;
+        header.after(panel);
     };
 
-    // --- UI ERSTELLEN ---
-    const panel = document.createElement('div');
-    panel.innerHTML = `
-        <div id="suno-renamer-ui" style="background: #111; color: #fff; padding: 15px; border-bottom: 1px solid #333; font-family: sans-serif;">
-            <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-                <input id="match-input" placeholder="Match (Regex/String)" style="flex: 1; background: #222; border: 1px solid #444; color: white; padding: 5px;">
-                <input id="replace-input" placeholder="Replace" style="flex: 1; background: #222; border: 1px solid #444; color: white; padding: 5px;">
-                <label><input type="checkbox" id="is-regex"> Regex</label>
-                <button id="run-rename" style="background: #22c55e; color: white; border: none; padding: 5px 15px; cursor: pointer;">Start Batch</button>
-            </div>
-            <div id="history-container" style="font-size: 12px; color: #aaa;">
-                History: <span id="history-list"></span>
-            </div>
-        </div>
-    `;
+    // --- CORE FUNKTIONEN ---
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-    // Panel in die Seite einfügen (versucht es unter die Searchbox zu hängen)
-    const injectUI = () => {
-        const target = document.querySelector('nav') || document.body; 
-        if (!document.getElementById('suno-renamer-ui')) {
-            target.prepend(panel);
-        }
-    };
-
-    // --- LOGIK ---
-    const runBatch = async () => {
+    const processSongs = async () => {
         const matchStr = document.getElementById('match-input').value;
         const replaceStr = document.getElementById('replace-input').value;
         const isRegex = document.getElementById('is-regex').checked;
-        
+
+        if (!matchStr) return alert("Bitte Suchstring eingeben!");
         saveHistory(matchStr, replaceStr);
 
-        const songs = document.querySelectorAll(SELECTORS.songItem);
-        console.log(`Gefundene Songs: ${songs.length}`);
+        // Finde alle Zeilen basierend auf deiner Strukturbeschreibung
+        const rows = document.querySelectorAll('.clip-row');
+        console.log(`Starte Batch für ${rows.length} Zeilen...`);
 
-        for (const song of songs) {
-            const titleEl = song.querySelector(SELECTORS.titleDisplay);
-            if (!titleEl) continue;
+        for (const row of rows) {
+            // Finde das Link-Element, das den Titel enthält
+            const titleLink = row.querySelector('a[href*="/song/"]');
+            if (!titleLink) continue;
 
-            let oldTitle = titleEl.innerText;
+            const oldTitle = titleLink.innerText.trim();
             let newTitle = "";
 
-            if (isRegex) {
-                const re = new RegExp(matchStr, 'g');
-                if (re.test(oldTitle)) {
-                    newTitle = oldTitle.replace(re, replaceStr);
+            // Transformation berechnen
+            try {
+                if (isRegex) {
+                    const re = new RegExp(matchStr, 'g');
+                    if (re.test(oldTitle)) {
+                        newTitle = oldTitle.replace(re, replaceStr);
+                    }
+                } else {
+                    if (oldTitle.includes(matchStr)) {
+                        newTitle = oldTitle.split(matchStr).join(replaceStr);
+                    }
                 }
-            } else {
-                if (oldTitle.includes(matchStr)) {
-                    newTitle = oldTitle.split(matchStr).join(replaceStr);
-                }
+            } catch (e) {
+                console.error("Regex Fehler:", e);
+                break;
             }
 
+            // Wenn Änderung nötig, UI-Workflow starten
             if (newTitle && newTitle !== oldTitle) {
-                await updateSongTitle(song, newTitle);
+                console.log(`Renaming: "${oldTitle}" -> "${newTitle}"`);
+                
+                // 1. Edit Button finden (via aria-label wie von dir beschrieben)
+                const editBtn = row.querySelector('button[aria-label*="Edit title"]');
+                if (!editBtn) continue;
+                
+                editBtn.click();
+                await sleep(400); // Warten bis Input erscheint
+
+                // 2. Input Feld finden
+                const input = row.querySelector('input[maxlength="80"]');
+                if (input) {
+                    input.value = newTitle;
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    await sleep(100);
+
+                    // 3. Save Button finden
+                    const saveBtn = row.querySelector('button[aria-label*="Save title"]');
+                    if (saveBtn) {
+                        saveBtn.click();
+                        await sleep(600); // Pause für API Sync
+                    }
+                }
             }
         }
+        alert("Batch abgeschlossen!");
     };
 
-    // Simuliert die Klicks zum Speichern
-    const updateSongTitle = async (songElement, newTitle) => {
-        // 1. Edit Button klicken
-        const editBtn = songElement.querySelector(SELECTORS.editButton);
-        if (!editBtn) return;
-        editBtn.click();
-
-        // Warten bis Modal offen
-        await new Promise(r => setTimeout(r, 500));
-
-        // 2. Input finden und Wert setzen
-        const input = document.querySelector(SELECTORS.inputField);
-        if (input) {
-            input.value = newTitle;
-            input.dispatchEvent(new Event('input', { bubbles: true }));
-            
-            // 3. Save klicken
-            const saveBtn = document.querySelector(SELECTORS.saveButton);
-            if (saveBtn) {
-                saveBtn.click();
-                await new Promise(r => setTimeout(r, 800)); // Pause für API-Request
-            }
-        }
-    };
-
-    // History Funktionen
+    // --- HISTORY HANDLING ---
     const saveHistory = (m, r) => {
-        let history = JSON.parse(localStorage.getItem('suno-rename-history') || '[]');
+        let history = JSON.parse(localStorage.getItem('suno-rename-hist') || '[]');
+        // Duplikate vermeiden
+        history = history.filter(h => h.m !== m);
         history.unshift({m, r});
-        history = history.slice(0, 5);
-        localStorage.setItem('suno-rename-history', JSON.stringify(history));
+        history = history.slice(0, 8);
+        localStorage.setItem('suno-rename-hist', JSON.stringify(history));
         renderHistory();
     };
 
     const renderHistory = () => {
         const list = document.getElementById('history-list');
-        const history = JSON.parse(localStorage.getItem('suno-rename-history') || '[]');
+        const history = JSON.parse(localStorage.getItem('suno-rename-hist') || '[]');
         list.innerHTML = history.map(h => 
-            `<span style="cursor:pointer; text-decoration:underline; margin-right:8px;" onclick="document.getElementById('match-input').value='${h.m}'; document.getElementById('replace-input').value='${h.r}';">
-                ${h.m}→${h.r}
+            `<span style="cursor:pointer; text-decoration:underline; margin-right:12px; display:inline-block;" title="Klicken zum Laden">
+                ${h.m} → ${h.r}
             </span>`
         ).join('');
+
+        // Event Listener für History-Items
+        list.querySelectorAll('span').forEach((span, idx) => {
+            span.onclick = () => {
+                document.getElementById('match-input').value = history[idx].m;
+                document.getElementById('replace-input').value = history[idx].r;
+            };
+        });
     };
 
-    // Start
+    // --- INITIALISIERUNG ---
     setTimeout(() => {
-        injectUI();
+        createUI();
         renderHistory();
-        document.getElementById('run-rename').addEventListener('click', runBatch);
-    }, 2000);
+        document.getElementById('run-rename').onclick = processSongs;
+    }, 2500);
 
 })();
