@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Suno Song Renamer Elite (Layout Fix)
+// @name         Suno Song Renamer Elite (Pill Button)
 // @namespace    http://tampermonkey.net/
-// @version      1.7
-// @description  Batch rename with Layout-Refresh to fix disappearing list items.
+// @version      1.8
+// @description  Improved button placement and pill-shaped styling.
 // @author       Gemini/Coding-Assistant
 // @match        https://suno.com/*
 // @grant        none
@@ -26,8 +26,18 @@
             width: 100%; background: #000; border: 1px solid #444;
             color: #fff; padding: 5px; border-radius: 4px; margin-bottom: 5px; box-sizing: border-box;
         }
-        .suno-btn { padding: 4px 10px; border-radius: 4px; border: none; cursor: pointer; font-weight: bold; }
-        #suno-rename-trigger { background: #27272a; border: 1px solid #3f3f46; color: #fff; padding: 4px 12px; border-radius: 6px; cursor: pointer; margin-right: 8px; font-size: 12px; }
+        .suno-btn { 
+            padding: 4px 12px; border-radius: 20px; /* 50% height equivalent */
+            border: none; cursor: pointer; font-weight: bold; 
+        }
+        #suno-rename-trigger { 
+            background: #27272a; border: 1px solid #3f3f46; color: #fff; 
+            padding: 6px 16px; border-radius: 999px; /* Pill shape */
+            cursor: pointer; margin-left: 10px; font-size: 12px; 
+            display: inline-flex; align-items: center; justify-content: center;
+            height: fit-content; align-self: center;
+        }
+        #suno-rename-trigger:hover { background: #3f3f46; }
     `;
 
     const styleSheet = document.createElement("style");
@@ -39,7 +49,7 @@
         modal.id = 'suno-rename-modal';
         modal.innerHTML = `
             <div style="display:flex; justify-content:space-between; margin-bottom:8px; border-bottom: 1px solid #222; padding-bottom: 4px;">
-                <b style="color:#3b82f6;">Batch Renamer v1.7</b>
+                <b style="color:#3b82f6;">Batch Renamer v1.8</b>
                 <span id="close-modal" style="cursor:pointer; opacity: 0.5;">✕</span>
             </div>
             <input id="match-input" class="suno-input" placeholder="Search (Regex/String)">
@@ -60,30 +70,40 @@
 
         const injectBtn = () => {
             if (document.getElementById('suno-rename-trigger')) return;
-            const filterBtn = document.querySelector('button[aria-label*="filter"], button[aria-label*="Filter"]');
-            if (filterBtn) {
+            
+            // Suche die Searchbox (Input oder dessen Container)
+            const searchInput = document.querySelector('input[type="search"], input[placeholder*="Search"]');
+            if (searchInput) {
                 const btn = document.createElement('button');
                 btn.id = 'suno-rename-trigger';
                 btn.innerText = 'Rename';
-                filterBtn.parentNode.insertBefore(btn, filterBtn);
-                btn.onclick = () => { modal.style.display = 'block'; renderHistory(); };
+                
+                // Wir suchen das Elternelement, das die Suchleiste umschließt, 
+                // um den Button direkt daneben zu platzieren.
+                const searchContainer = searchInput.closest('div');
+                if (searchContainer) {
+                    searchContainer.after(btn);
+                    btn.onclick = (e) => {
+                        e.preventDefault();
+                        modal.style.display = 'block'; 
+                        renderHistory(); 
+                    };
+                }
             }
         };
 
-        new MutationObserver(injectBtn).observe(document.body, { childList: true, subtree: true });
+        const observer = new MutationObserver(injectBtn);
+        observer.observe(document.body, { childList: true, subtree: true });
+
         document.getElementById('close-modal').onclick = () => modal.style.display = 'none';
         document.getElementById('run-rename').onclick = startBatch;
         document.getElementById('stop-rename').onclick = () => { isRunning = false; };
     };
 
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-
-    // Erzwingt eine Neuberechnung des Layouts
     const refreshLayout = () => {
         window.dispatchEvent(new Event('resize'));
-        // Kleiner Trick: Minimales Scrollen triggert oft den Virtual List Re-Render
-        window.scrollBy(0, 1);
-        window.scrollBy(0, -1);
+        window.scrollBy(0, 1); window.scrollBy(0, -1);
     };
 
     async function startBatch() {
@@ -108,16 +128,13 @@
 
             for (const row of rows) {
                 if (!isRunning) break;
-
                 const link = row.querySelector('a[href*="/song/"]');
                 if (!link) continue;
-
                 const id = link.getAttribute('href').split('/').pop();
                 if (processedIds.has(id)) continue;
 
                 const oldT = link.innerText.trim();
                 let newT = "";
-
                 try {
                     if (isRe) {
                         const re = new RegExp(m, 'g');
@@ -130,44 +147,39 @@
                 if (newT && newT !== oldT) {
                     matchFoundInView = true;
                     row.scrollIntoView({ behavior: 'instant', block: 'center' });
-                    await sleep(300);
+                    await sleep(400);
 
                     const editBtn = row.querySelector('button[aria-label*="Edit title"]');
                     if (editBtn) {
                         editBtn.click();
-                        await sleep(500);
+                        await sleep(600);
                         const input = row.querySelector('input[maxlength="80"]');
                         if (input) {
                             input.value = newT;
                             input.dispatchEvent(new Event('input', { bubbles: true }));
-                            await sleep(200);
+                            await sleep(300);
                             const saveBtn = row.querySelector('button[aria-label*="Save title"]');
                             if (saveBtn) {
                                 saveBtn.click();
                                 processedIds.add(id);
                                 countDisplay.innerText = `Count: ${processedIds.size}`;
-                                await sleep(1000); 
-                                refreshLayout(); // Wichtig: Suno zwingen die Liste zu prüfen
+                                await sleep(1200); 
+                                refreshLayout();
                                 await sleep(500); 
                             }
                         }
                     }
-                } else {
-                    processedIds.add(id); // Überspringen, aber als verarbeitet markieren
-                }
+                } else { processedIds.add(id); }
             }
 
             if (isRunning) {
                 window.scrollBy(0, 500);
                 await sleep(1000);
-                
                 if (!matchFoundInView) consecutiveNoMatches++;
                 else consecutiveNoMatches = 0;
-
-                if (consecutiveNoMatches > 12) break; // Liste zu Ende
+                if (consecutiveNoMatches > 12) break;
             }
         }
-
         isRunning = false;
         document.getElementById('run-rename').style.display = 'inline-block';
         document.getElementById('stop-rename').style.display = 'none';
@@ -183,7 +195,7 @@
     const renderHistory = () => {
         const h = JSON.parse(localStorage.getItem('suno-h6') || '[]');
         document.getElementById('history-items').innerHTML = h.map((x, i) => 
-            `<span style="cursor:pointer; text-decoration:underline; color:#666; margin-right:4px;" data-idx="${i}">${x.m.substring(0,4)}..</span>`
+            `<span style="cursor:pointer; text-decoration:underline; color:#666; font-size:10px;" data-idx="${i}">${x.m.substring(0,4)}..</span>`
         ).join('');
         document.querySelectorAll('#history-items span').forEach(el => {
             el.onclick = () => {
