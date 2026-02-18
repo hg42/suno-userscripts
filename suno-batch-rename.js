@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Suno Song Renamer Elite (No Self-Injection)
+// @name         Suno Song Renamer Elite (v2.1)
 // @namespace    http://tampermonkey.net/
-// @version      2.0
-// @description  Fixed the "button-in-modal" bug by excluding the script UI from search.
+// @version      2.1
+// @description  Precision search targeting and auto-focus on open.
 // @author       Gemini/Coding-Assistant
 // @match        https://suno.com/*
 // @grant        none
@@ -43,7 +43,7 @@
         modal.id = 'suno-rename-modal';
         modal.innerHTML = `
             <div style="display:flex; justify-content:space-between; margin-bottom:8px; border-bottom: 1px solid #222; padding-bottom: 4px;">
-                <b style="color:#3b82f6;">Batch Renamer v2.0</b>
+                <b style="color:#3b82f6;">Batch Renamer v2.1</b>
                 <span id="close-modal" style="cursor:pointer; opacity: 0.5;">✕</span>
             </div>
             <input id="match-input" class="suno-input" placeholder="Search Pattern">
@@ -65,8 +65,8 @@
         const injectBtn = () => {
             if (document.getElementById('suno-rename-trigger')) return;
             
-            // WICHTIG: Suche NUR Inputs, die NICHT in unserem Modal liegen
-            const searchInput = document.querySelector('input[placeholder*="Search"]:not(#suno-rename-modal input)');
+            // Precision targeting for the song list search bar
+            const searchInput = document.querySelector('input[aria-label*="Search clips"]');
             
             if (searchInput) {
                 const container = searchInput.parentElement;
@@ -77,10 +77,17 @@
                     container.style.display = 'flex';
                     container.style.alignItems = 'center';
                     container.appendChild(btn);
+                    
                     btn.onclick = (e) => {
                         e.preventDefault();
+                        e.stopPropagation();
                         modal.style.display = 'block'; 
-                        renderHistory(); 
+                        renderHistory();
+                        
+                        // Set focus to the first input field
+                        setTimeout(() => {
+                            document.getElementById('match-input').focus();
+                        }, 50);
                     };
                 }
             }
@@ -92,7 +99,7 @@
         document.getElementById('stop-rename').onclick = () => { isRunning = false; };
     };
 
-    // ... (Logik-Teil bleibt identisch wie zuvor) ...
+    // ... (rest of logic remains the same) ...
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     const refreshLayout = () => { window.dispatchEvent(new Event('resize')); window.scrollBy(0, 1); window.scrollBy(0, -1); };
 
@@ -183,6 +190,7 @@
                 const item = h[el.dataset.idx];
                 document.getElementById('match-input').value = item.m;
                 document.getElementById('replace-input').value = item.r;
+                document.getElementById('match-input').focus();
             };
         });
     };
