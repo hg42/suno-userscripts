@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Suno Song Renamer Elite (v2.8)
+// @name         Suno Song Renamer Elite (v2.9)
 // @namespace    http://tampermonkey.net/
-// @version      2.8
-// @description  History increased to 20 items with Pinning functionality.
+// @version      2.9
+// @description  Window height doubled, optimized history visibility for 10+ entries.
 // @author       Gemini/Coding-Assistant
 // @match        https://suno.com/*
 // @grant        none
@@ -17,11 +17,15 @@
     const styles = `
         #suno-rename-modal {
             position: fixed; top: 15px; right: 15px; width: 340px;
+            height: 500px; /* Doppelte Höhe für bessere Übersicht */
             background: #111; border: 1px solid #333; color: #eee;
             padding: 12px; border-radius: 10px; z-index: 999999;
             font-family: sans-serif; box-shadow: 0 10px 40px rgba(0,0,0,0.9);
             display: none; font-size: 11px;
+            flex-direction: column;
         }
+        .modal-header { display:flex; justify-content:space-between; margin-bottom:10px; border-bottom: 1px solid #222; padding-bottom: 6px; flex-shrink: 0; }
+        .input-section { flex-shrink: 0; }
         .input-wrapper { position: relative; margin-bottom: 8px; display: flex; align-items: center; }
         .suno-input {
             width: 100%; background: #000; border: 1px solid #444;
@@ -36,20 +40,34 @@
             display: inline-flex; align-items: center; height: 32px; border: none;
         }
 
+        /* Maximierter History Container */
         .history-chip-container {
-            display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px;
-            padding-top: 10px; border-top: 1px solid #222; max-height: 120px; overflow-y: auto;
+            display: flex; flex-direction: column; gap: 6px; margin-top: 10px;
+            padding-top: 10px; border-top: 1px solid #222;
+            flex-grow: 1; overflow-y: auto; overflow-x: hidden;
+            padding-right: 4px;
         }
+
+        /* Scrollbar Styling */
+        .history-chip-container::-webkit-scrollbar { width: 4px; }
+        .history-chip-container::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+
         .history-chip {
-            background: #222; border: 1px solid #333; color: #aaa;
-            padding: 4px 8px; border-radius: 12px; cursor: pointer;
-            font-size: 10px; display: flex; align-items: center; gap: 5px;
+            background: #1a1a1a; border: 1px solid #333; color: #aaa;
+            padding: 6px 10px; border-radius: 8px; cursor: pointer;
+            font-size: 10px; display: flex; align-items: center; justify-content: space-between;
+            min-height: 24px; transition: 0.2s;
         }
         .history-chip.pinned { border-color: #eab308; background: #2d2610; color: #fde68a; }
-        .history-chip:hover { border-color: #3b82f6; color: #fff; }
-        .pin-icon { cursor: pointer; font-size: 10px; opacity: 0.5; transition: 0.2s; }
-        .pin-icon:hover { opacity: 1; transform: scale(1.2); }
-        .chip-arrow { color: #3b82f6; font-weight: bold; }
+        .history-chip:hover { border-color: #3b82f6; color: #fff; background: #222; }
+
+        .chip-content { display: flex; align-items: center; gap: 5px; flex-grow: 1; overflow: hidden; }
+        .chip-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .pin-icon { cursor: pointer; font-size: 12px; opacity: 0.6; padding-left: 8px; flex-shrink: 0; }
+        .pin-icon:hover { opacity: 1; transform: scale(1.1); }
+        .chip-arrow { color: #3b82f6; font-weight: bold; flex-shrink: 0; }
+
+        .modal-footer { display:flex; gap:8px; align-items:center; justify-content:flex-end; margin-top:12px; padding-top: 10px; border-top: 1px solid #222; flex-shrink: 0; }
     `;
 
     const styleSheet = document.createElement("style");
@@ -61,19 +79,21 @@
         const modal = document.createElement('div');
         modal.id = 'suno-rename-modal';
         modal.innerHTML = `
-            <div style="display:flex; justify-content:space-between; margin-bottom:10px; border-bottom: 1px solid #222; padding-bottom: 6px;">
-                <b style="color:#3b82f6;">BATCH RENAMER v2.7</b>
+            <div class="modal-header">
+                <b style="color:#3b82f6;">BATCH RENAMER v2.9</b>
                 <span id="close-modal" style="cursor:pointer;">✕</span>
             </div>
-            <div class="input-wrapper"><input id="match-input" class="suno-input" placeholder="Search Pattern"><span class="hist-trigger" id="hist-m-btn">▼</span></div>
-            <div class="input-wrapper"><input id="replace-input" class="suno-input" placeholder="Replace Pattern"><span class="hist-trigger" id="hist-r-btn">▼</span></div>
-            <div id="hist-dropdown" style="position: absolute; background: #1a1a1a; border: 1px solid #444; width: calc(100% - 24px); z-index: 1000000; display: none; border-radius: 4px;"></div>
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <label style="cursor:pointer;"><input type="checkbox" id="is-regex"> Regex</label>
-                <span id="count-display" style="color:#888;">Count: 0</span>
+            <div class="input-section">
+                <div class="input-wrapper"><input id="match-input" class="suno-input" placeholder="Search Pattern"><span class="hist-trigger" id="hist-m-btn">▼</span></div>
+                <div class="input-wrapper"><input id="replace-input" class="suno-input" placeholder="Replace Pattern"><span class="hist-trigger" id="hist-r-btn">▼</span></div>
+                <div id="hist-dropdown" style="position: absolute; background: #1a1a1a; border: 1px solid #444; width: calc(100% - 24px); z-index: 1000000; display: none; border-radius: 4px;"></div>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <label style="cursor:pointer;"><input type="checkbox" id="is-regex"> Regex</label>
+                    <span id="count-display" style="color:#888;">Count: 0</span>
+                </div>
             </div>
             <div class="history-chip-container" id="chip-container"></div>
-            <div style="display:flex; gap:8px; align-items:center; justify-content:flex-end; margin-top:12px;">
+            <div class="modal-footer">
                 <button id="run-rename" class="suno-btn" style="background:#16a34a; color:white;">Start</button>
                 <button id="stop-rename" class="suno-btn" style="background:#dc2626; color:white; display:none;">Stop</button>
             </div>
@@ -84,7 +104,6 @@
         document.getElementById('run-rename').onclick = startBatch;
         document.getElementById('stop-rename').onclick = () => { isRunning = false; };
 
-        // Dropdown Logic remains same for quick field selection
         const showHist = (type) => {
             const h = JSON.parse(localStorage.getItem('suno-h6') || '[]');
             const drop = document.getElementById('hist-dropdown');
@@ -100,7 +119,7 @@
         };
         document.getElementById('hist-m-btn').onclick = (e) => { e.stopPropagation(); showHist('m'); };
         document.getElementById('hist-r-btn').onclick = (e) => { e.stopPropagation(); showHist('r'); };
-        document.addEventListener('click', () => { document.getElementById('hist-dropdown').style.display = 'none'; });
+        document.addEventListener('click', () => { if(document.getElementById('hist-dropdown')) document.getElementById('hist-dropdown').style.display = 'none'; });
     };
 
     const renderChips = () => {
@@ -110,14 +129,18 @@
 
         container.innerHTML = h.map((x, i) => `
             <div class="history-chip ${x.pinned ? 'pinned' : ''}" data-idx="${i}">
-                <span class="chip-text">${x.m} <span class="chip-arrow">→</span> ${x.r}</span>
+                <div class="chip-content" data-idx="${i}">
+                    <span class="chip-text">${x.m}</span>
+                    <span class="chip-arrow">→</span>
+                    <span class="chip-text">${x.r}</span>
+                </div>
                 <span class="pin-icon" data-idx="${i}">${x.pinned ? '📍' : '📌'}</span>
             </div>
         `).join('');
 
-        container.querySelectorAll('.chip-text').forEach(text => {
-            text.onclick = (e) => {
-                const item = h[text.parentElement.dataset.idx];
+        container.querySelectorAll('.chip-content').forEach(content => {
+            content.onclick = () => {
+                const item = h[content.dataset.idx];
                 document.getElementById('match-input').value = item.m;
                 document.getElementById('replace-input').value = item.r;
             };
@@ -134,7 +157,6 @@
     const togglePin = (idx) => {
         let h = JSON.parse(localStorage.getItem('suno-h6') || '[]');
         h[idx].pinned = !h[idx].pinned;
-        // Sort: Pinned first, then by last used
         h.sort((a, b) => (b.pinned - a.pinned));
         localStorage.setItem('suno-h6', JSON.stringify(h));
         renderChips();
@@ -143,25 +165,18 @@
     const saveHistory = (m, r) => {
         let h = JSON.parse(localStorage.getItem('suno-h6') || '[]');
         const existingIdx = h.findIndex(x => x.m === m && x.r === r);
-        let isPinned = false;
+        let isPinned = (existingIdx > -1) ? h[existingIdx].pinned : false;
 
-        if (existingIdx > -1) {
-            isPinned = h[existingIdx].pinned;
-            h.splice(existingIdx, 1);
-        }
-
+        if (existingIdx > -1) h.splice(existingIdx, 1);
         h.unshift({m, r, pinned: isPinned});
 
-        // Keep pinned items + recent unpinned items up to 20
         const pinnedItems = h.filter(x => x.pinned);
         const unpinnedItems = h.filter(x => !x.pinned).slice(0, 20 - pinnedItems.length);
 
-        const newHistory = [...pinnedItems, ...unpinnedItems];
-        localStorage.setItem('suno-h6', JSON.stringify(newHistory));
+        localStorage.setItem('suno-h6', JSON.stringify([...pinnedItems, ...unpinnedItems]));
         renderChips();
     };
 
-    // Renaming Logic (same as v2.6)
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     const refreshLayout = () => { window.dispatchEvent(new Event('resize')); window.scrollBy(0, 1); window.scrollBy(0, -1); };
 
@@ -231,7 +246,7 @@
             filterBtn.parentNode.parentNode.append(btn);
             btn.onclick = () => {
                 const modal = document.getElementById('suno-rename-modal');
-                modal.style.display = 'block';
+                modal.style.display = 'flex'; // Geändert auf flex für Layout-Stabilität
                 renderChips();
                 setTimeout(() => document.getElementById('match-input').focus(), 50);
             };
