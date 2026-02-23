@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Suno Song Renamer Elite (v2.9)
+// @name         Suno Song Renamer Elite (v2.9.1)
 // @namespace    http://tampermonkey.net/
-// @version      2.9
-// @description  Window height doubled, optimized history visibility for 10+ entries.
+// @version      2.9.1
+// @description  Added delete button for history entries, kept pins and extended view.
 // @author       Gemini/Coding-Assistant
 // @match        https://suno.com/*
 // @grant        none
@@ -17,12 +17,10 @@
     const styles = `
         #suno-rename-modal {
             position: fixed; top: 15px; right: 15px; width: 340px;
-            height: 500px; /* Doppelte Höhe für bessere Übersicht */
-            background: #111; border: 1px solid #333; color: #eee;
+            height: 500px; background: #111; border: 1px solid #333; color: #eee;
             padding: 12px; border-radius: 10px; z-index: 999999;
             font-family: sans-serif; box-shadow: 0 10px 40px rgba(0,0,0,0.9);
-            display: none; font-size: 11px;
-            flex-direction: column;
+            display: none; font-size: 11px; flex-direction: column;
         }
         .modal-header { display:flex; justify-content:space-between; margin-bottom:10px; border-bottom: 1px solid #222; padding-bottom: 6px; flex-shrink: 0; }
         .input-section { flex-shrink: 0; }
@@ -40,7 +38,6 @@
             display: inline-flex; align-items: center; height: 32px; border: none;
         }
 
-        /* Maximierter History Container */
         .history-chip-container {
             display: flex; flex-direction: column; gap: 6px; margin-top: 10px;
             padding-top: 10px; border-top: 1px solid #222;
@@ -48,7 +45,6 @@
             padding-right: 4px;
         }
 
-        /* Scrollbar Styling */
         .history-chip-container::-webkit-scrollbar { width: 4px; }
         .history-chip-container::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
 
@@ -63,8 +59,11 @@
 
         .chip-content { display: flex; align-items: center; gap: 5px; flex-grow: 1; overflow: hidden; }
         .chip-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .pin-icon { cursor: pointer; font-size: 12px; opacity: 0.6; padding-left: 8px; flex-shrink: 0; }
+
+        .action-icons { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding-left: 8px; }
+        .pin-icon, .delete-icon { cursor: pointer; font-size: 12px; opacity: 0.5; transition: 0.2s; }
         .pin-icon:hover { opacity: 1; transform: scale(1.1); }
+        .delete-icon:hover { opacity: 1; color: #ef4444; transform: scale(1.1); }
         .chip-arrow { color: #3b82f6; font-weight: bold; flex-shrink: 0; }
 
         .modal-footer { display:flex; gap:8px; align-items:center; justify-content:flex-end; margin-top:12px; padding-top: 10px; border-top: 1px solid #222; flex-shrink: 0; }
@@ -80,7 +79,7 @@
         modal.id = 'suno-rename-modal';
         modal.innerHTML = `
             <div class="modal-header">
-                <b style="color:#3b82f6;">BATCH RENAMER v2.9</b>
+                <b style="color:#3b82f6;">BATCH RENAMER v2.9.1</b>
                 <span id="close-modal" style="cursor:pointer;">✕</span>
             </div>
             <div class="input-section">
@@ -134,7 +133,10 @@
                     <span class="chip-arrow">→</span>
                     <span class="chip-text">${x.r}</span>
                 </div>
-                <span class="pin-icon" data-idx="${i}">${x.pinned ? '📍' : '📌'}</span>
+                <div class="action-icons">
+                    <span class="pin-icon" data-idx="${i}" title="Pin/Unpin">${x.pinned ? '📍' : '📌'}</span>
+                    <span class="delete-icon" data-idx="${i}" title="Löschen">🗑️</span>
+                </div>
             </div>
         `).join('');
 
@@ -147,11 +149,19 @@
         });
 
         container.querySelectorAll('.pin-icon').forEach(pin => {
-            pin.onclick = (e) => {
-                e.stopPropagation();
-                togglePin(pin.dataset.idx);
-            };
+            pin.onclick = (e) => { e.stopPropagation(); togglePin(pin.dataset.idx); };
         });
+
+        container.querySelectorAll('.delete-icon').forEach(del => {
+            del.onclick = (e) => { e.stopPropagation(); deleteEntry(del.dataset.idx); };
+        });
+    };
+
+    const deleteEntry = (idx) => {
+        let h = JSON.parse(localStorage.getItem('suno-h6') || '[]');
+        h.splice(idx, 1);
+        localStorage.setItem('suno-h6', JSON.stringify(h));
+        renderChips();
     };
 
     const togglePin = (idx) => {
@@ -246,7 +256,7 @@
             filterBtn.parentNode.parentNode.append(btn);
             btn.onclick = () => {
                 const modal = document.getElementById('suno-rename-modal');
-                modal.style.display = 'flex'; // Geändert auf flex für Layout-Stabilität
+                modal.style.display = 'flex';
                 renderChips();
                 setTimeout(() => document.getElementById('match-input').focus(), 50);
             };
