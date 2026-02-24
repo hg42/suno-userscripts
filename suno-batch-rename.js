@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Suno Song Renamer Elite (v2.9.6)
+// @name         Suno Song Renamer Elite (v2.9.6.2)
 // @namespace    http://tampermonkey.net/
-// @version      2.9.6
+// @version      2.9.6.2
 // @description  Batch renames Suno songs. Includes Pin/Delete history, UI-Refresh workaround, and English comments.
 // @author       Gemini/Coding-Assistant
 // @match        https://suno.com/*
@@ -68,7 +68,7 @@
         modal.id = 'suno-rename-modal';
         modal.innerHTML = `
             <div class="modal-header">
-                <b style="color:#3b82f6;">BATCH RENAMER v2.9.6</b>
+                <b style="color:#3b82f6;">BATCH RENAMER v2.9.6.2</b>
                 <span id="close-modal" style="cursor:pointer;">✕</span>
             </div>
             <div class="input-section">
@@ -103,13 +103,16 @@
         const activeLink = allNavLinks.find(el => el.getAttribute('aria-current') === 'page' || el.className.includes('active'));
 
         // 2. Find a neutral tab to toggle away and back
-        const createTab = allNavLinks.find(el => el.innerText.includes('Create') || el.innerText.includes('Library'));
+        //const createTab = allNavLinks.find(el => el.innerText.includes('Create') || el.innerText.includes('Library'));
+        //const createTab = allNavLinks.find(el => el.innerText.includes('Create'));
+        const createTab = allNavLinks.find(el => el.href && el.href.includes('/create') && ! el.href.includes('/hooks'));
 
-        if (createTab && activeLink && createTab !== activeLink) {
+        //if (createTab && activeLink && createTab !== activeLink) {
+        if (createTab) {
             createTab.click(); // Switch away
-            await sleep(800);
-            activeLink.click(); // Switch back to force playlist reload
-            await sleep(1000); // Wait for the list to re-render
+            await sleep(1000);
+            //activeLink.click(); // Switch back to force playlist reload
+            //await sleep(1000); // Wait for the list to re-render
             console.log("UI Refreshed.");
         } else {
             // Fallback: Trigger resize and micro-scroll
@@ -136,63 +139,82 @@
         while (isRunning) {
             const rows = Array.from(document.querySelectorAll('.clip-row'));
 
+          	let processed = 0;
+
             for (const row of rows) {
+              	console.log("row: " + loopCounter);
                 if (!isRunning) break;
                 const link = row.querySelector('a[href*="/song/"]');
                 if (!link) continue;
+
                 const id = link.getAttribute('href').split('/').pop();
-                if (processedIds.has(id)) continue;
+                if (!processedIds.has(id)) {
 
-                const oldT = link.innerText.trim();
-                let newT = "";
-                try {
-                    newT = isRe ? oldT.replace(new RegExp(m, 'g'), r) : oldT.split(m).join(r);
-                } catch(e) {
-                    console.error("Regex Error", e);
-                    isRunning = false;
-                    break;
+                  processed++;
+
+                  // Highlight current rename in yellow
+                  link.style.color = '#fbbf24';
+
+                  const oldT = link.innerText.trim();
+                  let newT = "";
+                  try {
+                      newT = isRe ? oldT.replace(new RegExp(m, 'g'), r) : oldT.split(m).join(r);
+                  } catch(e) {
+                      console.error("Regex Error", e);
+                      isRunning = false;
+                      break;
+                  }
+
+                  row.scrollIntoView({ behavior: 'instant', block: 'center' });
+                  await sleep(100);
+
+                  if (newT !== oldT) {
+	                  await sleep(300);
+                      const editBtn = row.querySelector('button[aria-label*="Edit title"]');
+                      if (editBtn) {
+                          editBtn.click();
+                          await sleep(600);
+                          const input = row.querySelector('input[maxlength="80"]');
+                          if (input) {
+                              input.value = newT;
+                              input.dispatchEvent(new Event('input', { bubbles: true }));
+                              await sleep(300);
+                              const saveBtn = row.querySelector('button[aria-label*="Save title"]');
+                              if (saveBtn) {
+                                  saveBtn.click();
+                                  // Highlight successful rename in green
+                                  link.style.color = '#24ff24';
+                                  processedIds.add(id);
+                                  document.getElementById('count-display').innerText = `Count: ${processedIds.size}`;
+                                  await sleep(800);
+                              }
+                          }
+                      }
+                  } else {
+                      processedIds.add(id);
+                  }
                 }
 
-                if (newT !== oldT) {
-                    row.scrollIntoView({ behavior: 'instant', block: 'center' });
-                    await sleep(400);
-                    const editBtn = row.querySelector('button[aria-label*="Edit title"]');
-                    if (editBtn) {
-                        editBtn.click();
-                        await sleep(600);
-                        const input = row.querySelector('input[maxlength="80"]');
-                        if (input) {
-                            input.value = newT;
-                            input.dispatchEvent(new Event('input', { bubbles: true }));
-                            await sleep(300);
-                            const saveBtn = row.querySelector('button[aria-label*="Save title"]');
-                            if (saveBtn) {
-                                saveBtn.click();
-                                // Highlight successful rename in yellow
-                                link.style.color = '#fbbf24';
-                                processedIds.add(id);
-                                document.getElementById('count-display').innerText = `Count: ${processedIds.size}`;
-                                await sleep(800);
-                            }
-                        }
-                    }
-                } else {
-                    processedIds.add(id);
-                }
+                // Highlight not renamed in blueish white
+                link.style.color = '#bfbffb';
             }
 
             // UI-Refresh workaround every 5 loops to prevent playlist offset/desync
             loopCounter++;
-            if (loopCounter % 5 === 0) {
-                await triggerUIRefresh();
-            }
+            //if (loopCounter % 5 === 0) {
+            //    await triggerUIRefresh();
+            //}
+
+          	if (!processed) break;
 
             if (isRunning) {
-                window.scrollBy(0, 800);
-                await sleep(1200);
+                window.scrollBy(0, 400);
+                await sleep(200);
             }
         }
+
         isRunning = false;
+        await triggerUIRefresh();
         document.getElementById('run-rename').style.display = 'inline-block';
         document.getElementById('stop-rename').style.display = 'none';
     }
