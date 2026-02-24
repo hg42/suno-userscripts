@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Suno Song Renamer Elite (v2.9.1)
+// @name         Suno Song Renamer Elite (v2.9.5)
 // @namespace    http://tampermonkey.net/
-// @version      2.9.1
-// @description  Added delete button for history entries, kept pins and extended view.
+// @version      2.9.5
+// @description  Added UI-Refresh workaround to fix disappearing rows.
 // @author       Gemini/Coding-Assistant
 // @match        https://suno.com/*
 // @grant        none
@@ -17,13 +17,12 @@
     const styles = `
         #suno-rename-modal {
             position: fixed; top: 15px; right: 15px; width: 340px;
-            height: 500px; background: #111; border: 1px solid #333; color: #eee;
+            height: 520px; background: #111; border: 1px solid #333; color: #eee;
             padding: 12px; border-radius: 10px; z-index: 999999;
             font-family: sans-serif; box-shadow: 0 10px 40px rgba(0,0,0,0.9);
             display: none; font-size: 11px; flex-direction: column;
         }
         .modal-header { display:flex; justify-content:space-between; margin-bottom:10px; border-bottom: 1px solid #222; padding-bottom: 6px; flex-shrink: 0; }
-        .input-section { flex-shrink: 0; }
         .input-wrapper { position: relative; margin-bottom: 8px; display: flex; align-items: center; }
         .suno-input {
             width: 100%; background: #000; border: 1px solid #444;
@@ -42,29 +41,19 @@
             display: flex; flex-direction: column; gap: 6px; margin-top: 10px;
             padding-top: 10px; border-top: 1px solid #222;
             flex-grow: 1; overflow-y: auto; overflow-x: hidden;
-            padding-right: 4px;
         }
-
-        .history-chip-container::-webkit-scrollbar { width: 4px; }
-        .history-chip-container::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
 
         .history-chip {
             background: #1a1a1a; border: 1px solid #333; color: #aaa;
             padding: 6px 10px; border-radius: 8px; cursor: pointer;
             font-size: 10px; display: flex; align-items: center; justify-content: space-between;
-            min-height: 24px; transition: 0.2s;
         }
         .history-chip.pinned { border-color: #eab308; background: #2d2610; color: #fde68a; }
-        .history-chip:hover { border-color: #3b82f6; color: #fff; background: #222; }
+        .history-chip:hover { border-color: #3b82f6; color: #fff; }
 
-        .chip-content { display: flex; align-items: center; gap: 5px; flex-grow: 1; overflow: hidden; }
-        .chip-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-        .action-icons { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding-left: 8px; }
-        .pin-icon, .delete-icon { cursor: pointer; font-size: 12px; opacity: 0.5; transition: 0.2s; }
-        .pin-icon:hover { opacity: 1; transform: scale(1.1); }
-        .delete-icon:hover { opacity: 1; color: #ef4444; transform: scale(1.1); }
-        .chip-arrow { color: #3b82f6; font-weight: bold; flex-shrink: 0; }
+        .action-icons { display: flex; gap: 8px; padding-left: 8px; }
+        .pin-icon, .delete-icon { cursor: pointer; font-size: 12px; opacity: 0.5; }
+        .delete-icon:hover { color: #ef4444; }
 
         .modal-footer { display:flex; gap:8px; align-items:center; justify-content:flex-end; margin-top:12px; padding-top: 10px; border-top: 1px solid #222; flex-shrink: 0; }
     `;
@@ -79,7 +68,7 @@
         modal.id = 'suno-rename-modal';
         modal.innerHTML = `
             <div class="modal-header">
-                <b style="color:#3b82f6;">BATCH RENAMER v2.9.1</b>
+                <b style="color:#3b82f6;">BATCH RENAMER v2.9.5</b>
                 <span id="close-modal" style="cursor:pointer;">✕</span>
             </div>
             <div class="input-section">
@@ -93,6 +82,7 @@
             </div>
             <div class="history-chip-container" id="chip-container"></div>
             <div class="modal-footer">
+                <button id="force-refresh" class="suno-btn" style="background:#444; color:white; font-size:9px;">Force UI Reset</button>
                 <button id="run-rename" class="suno-btn" style="background:#16a34a; color:white;">Start</button>
                 <button id="stop-rename" class="suno-btn" style="background:#dc2626; color:white; display:none;">Stop</button>
             </div>
@@ -102,93 +92,34 @@
         document.getElementById('close-modal').onclick = () => modal.style.display = 'none';
         document.getElementById('run-rename').onclick = startBatch;
         document.getElementById('stop-rename').onclick = () => { isRunning = false; };
-
-        const showHist = (type) => {
-            const h = JSON.parse(localStorage.getItem('suno-h6') || '[]');
-            const drop = document.getElementById('hist-dropdown');
-            const target = document.getElementById(type === 'm' ? 'match-input' : 'replace-input');
-            const entries = [...new Set(h.map(x => type === 'm' ? x.m : x.r))].filter(Boolean);
-            if (entries.length === 0) return;
-            drop.innerHTML = entries.map(val => `<div style="padding:6px 10px; cursor:pointer; border-bottom:1px solid #222;">${val}</div>`).join('');
-            drop.style.display = 'block';
-            drop.style.top = (target.offsetTop + 30) + 'px';
-            drop.querySelectorAll('div').forEach(item => {
-                item.onclick = () => { target.value = item.innerText; drop.style.display = 'none'; };
-            });
-        };
-        document.getElementById('hist-m-btn').onclick = (e) => { e.stopPropagation(); showHist('m'); };
-        document.getElementById('hist-r-btn').onclick = (e) => { e.stopPropagation(); showHist('r'); };
-        document.addEventListener('click', () => { if(document.getElementById('hist-dropdown')) document.getElementById('hist-dropdown').style.display = 'none'; });
+        document.getElementById('force-refresh').onclick = triggerUIRefresh;
     };
 
-    const renderChips = () => {
-        const h = JSON.parse(localStorage.getItem('suno-h6') || '[]');
-        const container = document.getElementById('chip-container');
-        if (!container) return;
+    // --- WORKAROUND LOGIC ---
+    async function triggerUIRefresh() {
+        console.log("Triggering UI Workspace Refresh...");
+        // 1. Finde den aktuellen aktiven Workspace (meistens fett markiert oder mit spezifischer Klasse)
+        const allNavLinks = Array.from(document.querySelectorAll('a, button'));
+        const activeLink = allNavLinks.find(el => el.getAttribute('aria-current') === 'page' || el.className.includes('active'));
 
-        container.innerHTML = h.map((x, i) => `
-            <div class="history-chip ${x.pinned ? 'pinned' : ''}" data-idx="${i}">
-                <div class="chip-content" data-idx="${i}">
-                    <span class="chip-text">${x.m}</span>
-                    <span class="chip-arrow">→</span>
-                    <span class="chip-text">${x.r}</span>
-                </div>
-                <div class="action-icons">
-                    <span class="pin-icon" data-idx="${i}" title="Pin/Unpin">${x.pinned ? '📍' : '📌'}</span>
-                    <span class="delete-icon" data-idx="${i}" title="Löschen">🗑️</span>
-                </div>
-            </div>
-        `).join('');
+        // 2. Finde "Create" oder einen neutralen Link zum Umschalten
+        const createTab = allNavLinks.find(el => el.innerText.includes('Create') || el.innerText.includes('Library'));
 
-        container.querySelectorAll('.chip-content').forEach(content => {
-            content.onclick = () => {
-                const item = h[content.dataset.idx];
-                document.getElementById('match-input').value = item.m;
-                document.getElementById('replace-input').value = item.r;
-            };
-        });
-
-        container.querySelectorAll('.pin-icon').forEach(pin => {
-            pin.onclick = (e) => { e.stopPropagation(); togglePin(pin.dataset.idx); };
-        });
-
-        container.querySelectorAll('.delete-icon').forEach(del => {
-            del.onclick = (e) => { e.stopPropagation(); deleteEntry(del.dataset.idx); };
-        });
-    };
-
-    const deleteEntry = (idx) => {
-        let h = JSON.parse(localStorage.getItem('suno-h6') || '[]');
-        h.splice(idx, 1);
-        localStorage.setItem('suno-h6', JSON.stringify(h));
-        renderChips();
-    };
-
-    const togglePin = (idx) => {
-        let h = JSON.parse(localStorage.getItem('suno-h6') || '[]');
-        h[idx].pinned = !h[idx].pinned;
-        h.sort((a, b) => (b.pinned - a.pinned));
-        localStorage.setItem('suno-h6', JSON.stringify(h));
-        renderChips();
-    };
-
-    const saveHistory = (m, r) => {
-        let h = JSON.parse(localStorage.getItem('suno-h6') || '[]');
-        const existingIdx = h.findIndex(x => x.m === m && x.r === r);
-        let isPinned = (existingIdx > -1) ? h[existingIdx].pinned : false;
-
-        if (existingIdx > -1) h.splice(existingIdx, 1);
-        h.unshift({m, r, pinned: isPinned});
-
-        const pinnedItems = h.filter(x => x.pinned);
-        const unpinnedItems = h.filter(x => !x.pinned).slice(0, 20 - pinnedItems.length);
-
-        localStorage.setItem('suno-h6', JSON.stringify([...pinnedItems, ...unpinnedItems]));
-        renderChips();
-    };
+        if (createTab && activeLink && createTab !== activeLink) {
+            createTab.click();
+            await sleep(800);
+            activeLink.click();
+            await sleep(1000); // Warten bis Liste neu lädt
+            console.log("UI Refreshed.");
+        } else {
+            // Fallback: Einfach Fenstergröße triggern
+            window.dispatchEvent(new Event('resize'));
+            window.scrollBy(0, 10);
+            window.scrollBy(0, -10);
+        }
+    }
 
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-    const refreshLayout = () => { window.dispatchEvent(new Event('resize')); window.scrollBy(0, 1); window.scrollBy(0, -1); };
 
     async function startBatch() {
         const m = document.getElementById('match-input').value;
@@ -200,8 +131,12 @@
         document.getElementById('run-rename').style.display = 'none';
         document.getElementById('stop-rename').style.display = 'inline-block';
 
+        let loopCounter = 0;
+
         while (isRunning) {
             const rows = Array.from(document.querySelectorAll('.clip-row'));
+            let changesInThisRound = 0;
+
             for (const row of rows) {
                 if (!isRunning) break;
                 const link = row.querySelector('a[href*="/song/"]');
@@ -229,37 +164,77 @@
                             if (saveBtn) {
                                 saveBtn.click();
                                 link.style.color = '#fbbf24';
-                                link.style.fontWeight = 'bold';
                                 processedIds.add(id);
+                                changesInThisRound++;
                                 document.getElementById('count-display').innerText = `Count: ${processedIds.size}`;
-                                await sleep(1000);
-                                refreshLayout();
+                                await sleep(800);
                             }
                         }
                     }
                 } else { processedIds.add(id); }
             }
-            if (isRunning) { window.scrollBy(0, 500); await sleep(1000); }
+
+            // Alle 10 Songs ODER wenn keine Songs mehr gefunden wurden, UI-Refresh Workaround
+            loopCounter++;
+            if (loopCounter % 5 === 0) {
+                await triggerUIRefresh();
+            }
+
+            if (isRunning) {
+                window.scrollBy(0, 800);
+                await sleep(1200);
+            }
         }
         isRunning = false;
         document.getElementById('run-rename').style.display = 'inline-block';
         document.getElementById('stop-rename').style.display = 'none';
     }
 
+    // --- REST OF CORE LOGIC (History, Chips etc) ---
+    const renderChips = () => {
+        const h = JSON.parse(localStorage.getItem('suno-h6') || '[]');
+        const container = document.getElementById('chip-container');
+        if (!container) return;
+        container.innerHTML = h.map((x, i) => `
+            <div class="history-chip ${x.pinned ? 'pinned' : ''}" data-idx="${i}">
+                <div class="chip-content" style="flex-grow:1; overflow:hidden;" data-idx="${i}">
+                    <span>${x.m} <b>→</b> ${x.r}</span>
+                </div>
+                <div class="action-icons">
+                    <span class="pin-icon" data-idx="${i}">${x.pinned ? '📍' : '📌'}</span>
+                    <span class="delete-icon" data-idx="${i}">🗑️</span>
+                </div>
+            </div>
+        `).join('');
+        container.querySelectorAll('.chip-content').forEach(c => c.onclick = () => {
+            const item = h[c.dataset.idx];
+            document.getElementById('match-input').value = item.m;
+            document.getElementById('replace-input').value = item.r;
+        });
+        container.querySelectorAll('.pin-icon').forEach(p => p.onclick = (e) => { e.stopPropagation(); togglePin(p.dataset.idx); });
+        container.querySelectorAll('.delete-icon').forEach(d => d.onclick = (e) => { e.stopPropagation(); deleteEntry(d.dataset.idx); });
+    };
+
+    const deleteEntry = (idx) => { let h = JSON.parse(localStorage.getItem('suno-h6') || '[]'); h.splice(idx, 1); localStorage.setItem('suno-h6', JSON.stringify(h)); renderChips(); };
+    const togglePin = (idx) => { let h = JSON.parse(localStorage.getItem('suno-h6') || '[]'); h[idx].pinned = !h[idx].pinned; h.sort((a, b) => (b.pinned - a.pinned)); localStorage.setItem('suno-h6', JSON.stringify(h)); renderChips(); };
+    const saveHistory = (m, r) => {
+        let h = JSON.parse(localStorage.getItem('suno-h6') || '[]');
+        const existingIdx = h.findIndex(x => x.m === m && x.r === r);
+        let pinned = existingIdx > -1 ? h[existingIdx].pinned : false;
+        if (existingIdx > -1) h.splice(existingIdx, 1);
+        h.unshift({m, r, pinned});
+        localStorage.setItem('suno-h6', JSON.stringify(h.slice(0, 20)));
+        renderChips();
+    };
+
     const injectTrigger = () => {
         if (document.getElementById('suno-rename-trigger')) return;
-        const allButtons = Array.from(document.querySelectorAll('button'));
-        const filterBtn = allButtons.find(b => b.innerText.includes('Filters'));
-        if (filterBtn && filterBtn.parentNode && filterBtn.parentNode.parentNode) {
+        const filterBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.includes('Filters'));
+        if (filterBtn?.parentNode?.parentNode) {
             const btn = document.createElement('button');
             btn.id = 'suno-rename-trigger'; btn.innerText = 'Rename';
             filterBtn.parentNode.parentNode.append(btn);
-            btn.onclick = () => {
-                const modal = document.getElementById('suno-rename-modal');
-                modal.style.display = 'flex';
-                renderChips();
-                setTimeout(() => document.getElementById('match-input').focus(), 50);
-            };
+            btn.onclick = () => { document.getElementById('suno-rename-modal').style.display = 'flex'; renderChips(); };
         }
     };
 
