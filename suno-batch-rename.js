@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Suno Song Renamer Elite (v2.9.5)
+// @name         Suno Song Renamer Elite (v2.9.6)
 // @namespace    http://tampermonkey.net/
-// @version      2.9.5
-// @description  Added UI-Refresh workaround to fix disappearing rows.
+// @version      2.9.6
+// @description  Batch renames Suno songs. Includes Pin/Delete history, UI-Refresh workaround, and English comments.
 // @author       Gemini/Coding-Assistant
 // @match        https://suno.com/*
 // @grant        none
@@ -68,7 +68,7 @@
         modal.id = 'suno-rename-modal';
         modal.innerHTML = `
             <div class="modal-header">
-                <b style="color:#3b82f6;">BATCH RENAMER v2.9.5</b>
+                <b style="color:#3b82f6;">BATCH RENAMER v2.9.6</b>
                 <span id="close-modal" style="cursor:pointer;">✕</span>
             </div>
             <div class="input-section">
@@ -95,24 +95,24 @@
         document.getElementById('force-refresh').onclick = triggerUIRefresh;
     };
 
-    // --- WORKAROUND LOGIC ---
+    // --- WORKAROUND LOGIC TO FIX VIRTUAL SCROLLING ISSUES ---
     async function triggerUIRefresh() {
         console.log("Triggering UI Workspace Refresh...");
-        // 1. Finde den aktuellen aktiven Workspace (meistens fett markiert oder mit spezifischer Klasse)
+        // 1. Find the current active workspace/page link
         const allNavLinks = Array.from(document.querySelectorAll('a, button'));
         const activeLink = allNavLinks.find(el => el.getAttribute('aria-current') === 'page' || el.className.includes('active'));
 
-        // 2. Finde "Create" oder einen neutralen Link zum Umschalten
+        // 2. Find a neutral tab to toggle away and back
         const createTab = allNavLinks.find(el => el.innerText.includes('Create') || el.innerText.includes('Library'));
 
         if (createTab && activeLink && createTab !== activeLink) {
-            createTab.click();
+            createTab.click(); // Switch away
             await sleep(800);
-            activeLink.click();
-            await sleep(1000); // Warten bis Liste neu lädt
+            activeLink.click(); // Switch back to force playlist reload
+            await sleep(1000); // Wait for the list to re-render
             console.log("UI Refreshed.");
         } else {
-            // Fallback: Einfach Fenstergröße triggern
+            // Fallback: Trigger resize and micro-scroll
             window.dispatchEvent(new Event('resize'));
             window.scrollBy(0, 10);
             window.scrollBy(0, -10);
@@ -135,7 +135,6 @@
 
         while (isRunning) {
             const rows = Array.from(document.querySelectorAll('.clip-row'));
-            let changesInThisRound = 0;
 
             for (const row of rows) {
                 if (!isRunning) break;
@@ -146,7 +145,13 @@
 
                 const oldT = link.innerText.trim();
                 let newT = "";
-                try { newT = isRe ? oldT.replace(new RegExp(m, 'g'), r) : oldT.split(m).join(r); } catch(e) { isRunning = false; break; }
+                try {
+                    newT = isRe ? oldT.replace(new RegExp(m, 'g'), r) : oldT.split(m).join(r);
+                } catch(e) {
+                    console.error("Regex Error", e);
+                    isRunning = false;
+                    break;
+                }
 
                 if (newT !== oldT) {
                     row.scrollIntoView({ behavior: 'instant', block: 'center' });
@@ -163,18 +168,20 @@
                             const saveBtn = row.querySelector('button[aria-label*="Save title"]');
                             if (saveBtn) {
                                 saveBtn.click();
+                                // Highlight successful rename in yellow
                                 link.style.color = '#fbbf24';
                                 processedIds.add(id);
-                                changesInThisRound++;
                                 document.getElementById('count-display').innerText = `Count: ${processedIds.size}`;
                                 await sleep(800);
                             }
                         }
                     }
-                } else { processedIds.add(id); }
+                } else {
+                    processedIds.add(id);
+                }
             }
 
-            // Alle 10 Songs ODER wenn keine Songs mehr gefunden wurden, UI-Refresh Workaround
+            // UI-Refresh workaround every 5 loops to prevent playlist offset/desync
             loopCounter++;
             if (loopCounter % 5 === 0) {
                 await triggerUIRefresh();
@@ -190,7 +197,7 @@
         document.getElementById('stop-rename').style.display = 'none';
     }
 
-    // --- REST OF CORE LOGIC (History, Chips etc) ---
+    // --- HISTORY AND CHIP MANAGEMENT ---
     const renderChips = () => {
         const h = JSON.parse(localStorage.getItem('suno-h6') || '[]');
         const container = document.getElementById('chip-container');
@@ -201,32 +208,53 @@
                     <span>${x.m} <b>→</b> ${x.r}</span>
                 </div>
                 <div class="action-icons">
-                    <span class="pin-icon" data-idx="${i}">${x.pinned ? '📍' : '📌'}</span>
-                    <span class="delete-icon" data-idx="${i}">🗑️</span>
+                    <span class="pin-icon" data-idx="${i}" title="Pin/Unpin">${x.pinned ? '📍' : '📌'}</span>
+                    <span class="delete-icon" data-idx="${i}" title="Delete">🗑️</span>
                 </div>
             </div>
         `).join('');
+
         container.querySelectorAll('.chip-content').forEach(c => c.onclick = () => {
             const item = h[c.dataset.idx];
             document.getElementById('match-input').value = item.m;
             document.getElementById('replace-input').value = item.r;
         });
-        container.querySelectorAll('.pin-icon').forEach(p => p.onclick = (e) => { e.stopPropagation(); togglePin(p.dataset.idx); });
-        container.querySelectorAll('.delete-icon').forEach(d => d.onclick = (e) => { e.stopPropagation(); deleteEntry(d.dataset.idx); });
+
+        container.querySelectorAll('.pin-icon').forEach(p => p.onclick = (e) => {
+            e.stopPropagation(); togglePin(p.dataset.idx);
+        });
+
+        container.querySelectorAll('.delete-icon').forEach(d => d.onclick = (e) => {
+            e.stopPropagation(); deleteEntry(d.dataset.idx);
+        });
     };
 
-    const deleteEntry = (idx) => { let h = JSON.parse(localStorage.getItem('suno-h6') || '[]'); h.splice(idx, 1); localStorage.setItem('suno-h6', JSON.stringify(h)); renderChips(); };
-    const togglePin = (idx) => { let h = JSON.parse(localStorage.getItem('suno-h6') || '[]'); h[idx].pinned = !h[idx].pinned; h.sort((a, b) => (b.pinned - a.pinned)); localStorage.setItem('suno-h6', JSON.stringify(h)); renderChips(); };
+    const deleteEntry = (idx) => {
+        let h = JSON.parse(localStorage.getItem('suno-h6') || '[]');
+        h.splice(idx, 1);
+        localStorage.setItem('suno-h6', JSON.stringify(h));
+        renderChips();
+    };
+
+    const togglePin = (idx) => {
+        let h = JSON.parse(localStorage.getItem('suno-h6') || '[]');
+        h[idx].pinned = !h[idx].pinned;
+        h.sort((a, b) => (b.pinned - a.pinned));
+        localStorage.setItem('suno-h6', JSON.stringify(h));
+        renderChips();
+    };
+
     const saveHistory = (m, r) => {
         let h = JSON.parse(localStorage.getItem('suno-h6') || '[]');
         const existingIdx = h.findIndex(x => x.m === m && x.r === r);
         let pinned = existingIdx > -1 ? h[existingIdx].pinned : false;
         if (existingIdx > -1) h.splice(existingIdx, 1);
         h.unshift({m, r, pinned});
-        localStorage.setItem('suno-h6', JSON.stringify(h.slice(0, 20)));
+        localStorage.setItem('suno-h6', JSON.stringify(h.slice(0, 20))); // History limit: 20
         renderChips();
     };
 
+    // --- DOM INJECTION ---
     const injectTrigger = () => {
         if (document.getElementById('suno-rename-trigger')) return;
         const filterBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.includes('Filters'));
@@ -234,10 +262,14 @@
             const btn = document.createElement('button');
             btn.id = 'suno-rename-trigger'; btn.innerText = 'Rename';
             filterBtn.parentNode.parentNode.append(btn);
-            btn.onclick = () => { document.getElementById('suno-rename-modal').style.display = 'flex'; renderChips(); };
+            btn.onclick = () => {
+                document.getElementById('suno-rename-modal').style.display = 'flex';
+                renderChips();
+            };
         }
     };
 
+    // Initialization
     setupUI();
     const observer = new MutationObserver(() => { setupUI(); injectTrigger(); });
     observer.observe(document.body, { childList: true, subtree: true });
