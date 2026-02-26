@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Suno.com Enhancer: Highlight & Autoscroll
-// @version      2026.02.26.1035
+// @name         suno: playing highlight & autoscroll
+// @version      2026.02.26.1120
 // @description  emphasizes song currently playing.
-// @description  scrolls it into view if AUTO button is enabled,
+// @description  scrolls it into view if autoscroll button is enabled,
 // @description  but only if the mouse is not hovering over the list
 // @author       hg42
 // @namespace    userscript.hg42
@@ -64,7 +64,7 @@
         const activeClip = document.querySelector('.clip-row:has(.playing-animation), .clip-row:has(.playing-pause)');
         const currentId = getPlayingTitleFromPlayer();
 
-      	console.log("player: " + currentId + " found: " + activeClip);
+        //console.log("player: " + currentId + " found: " + activeClip);
 
         if (!currentId) return;
 
@@ -77,13 +77,26 @@
 
         // Virtual Scrolling Handling: Wenn ID neu, aber Element NICHT im DOM
         if (!activeClip && currentId !== lastPlayedClipId) {
+            //console.log("now scrolling");
             // Wir versuchen das Element durch Scrollen "herbeizurufen"
             // Da wir nicht wissen ob oben/unten, probieren wir kleine Sprünge
-            const mainScrollContainer = document.querySelector('main') || window;
+            //const mainScrollContainer = document.querySelector('main') || window;
+            // #main-container > div > div > div:nth-child(1) > div > div.flex.flex-1.flex-col.overflow-y-scroll
+            //      > div > div.css-vnzcnw.e16od7yk1 > div > div.clip-browser-list-scroller.css-11nl96j.e81vryb2
+            const mainScrollContainer = document.querySelector('#main-container .clip-browser-list-scroller') || window;
+            //console.log("mainScrollContainer: " + mainScrollContainer);
 
-            // Heuristik: Meistens spielen neue Songs "unten" in der Liste (Queue)
-            // Wir scrollen ein Stück, der MutationObserver triggert performScroll erneut
-            mainScrollContainer.scrollBy({ top: 300, behavior: 'auto' });
+          	const playing = !! document.querySelector('button[aria-label^="Playbar: Pause button"]');
+			if (playing) {
+                // Heuristik: Meistens spielen neue Songs "unten" in der Liste (Queue)
+                // Wir scrollen ein Stück, der MutationObserver triggert performScroll erneut
+                if (lastPlayedClipId === "scrolling") {
+                    mainScrollContainer.scrollBy({ top: 300, behavior: 'auto' });
+                } else {
+                    mainScrollContainer.scrollBy({ top: -1000000, behavior: 'auto' });
+                    lastPlayedClipId = "scrolling";
+                }
+            }
         }
     };
 
@@ -112,7 +125,7 @@
             localStorage.setItem('suno_autoscroll', autoscrollEnabled);
             updateBtnUI(btn);
             if (autoscrollEnabled) {
-              	// force scrolling
+                // force scrolling
                 lastPlayedClipId = null;
                 performScroll();
             }
@@ -121,7 +134,7 @@
     };
 
     function updateBtnUI(btn) {
-        btn.innerText = autoscrollEnabled ? 'AUTO: ON' : 'AUTO: OFF';
+        btn.innerText = autoscrollEnabled ? 'scroll: ON' : 'scroll: off';
         btn.classList.toggle('active', autoscrollEnabled);
     }
 
