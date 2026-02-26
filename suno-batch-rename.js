@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         Suno Song Renamer Elite (v2.9.6.2)
-// @namespace    http://tampermonkey.net/
-// @version      2.9.6.2
+// @name         Suno Song Renamer Elite
+// @version      2026.02.26.1000
 // @description  Batch renames Suno songs. Includes Pin/Delete history, UI-Refresh workaround, and English comments.
-// @author       Gemini/Coding-Assistant
+// @author       hg42
+// @namespace    userscript.hg42
 // @match        https://suno.com/*
 // @grant        none
 // ==/UserScript==
@@ -68,7 +68,7 @@
         modal.id = 'suno-rename-modal';
         modal.innerHTML = `
             <div class="modal-header">
-                <b style="color:#3b82f6;">BATCH RENAMER v2.9.6.2</b>
+                <b style="color:#3b82f6;">BATCH RENAMER</b>
                 <span id="close-modal" style="cursor:pointer;">✕</span>
             </div>
             <div class="input-section">
