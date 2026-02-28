@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         suno: playing highlight & autoscroll
-// @version      2026.02.26.1120
+// @version      2026.02.28.1343
 // @description  emphasizes song currently playing.
 // @description  scrolls it into view if autoscroll button is enabled,
 // @description  but only if the mouse is not hovering over the list
 // @author       hg42
-// @namespace    userscript.hg42
+// @namespace    https://github.com/hg42/suno-userscripts
 // @match        https://suno.com/*
 // @grant        none
 // ==/UserScript==

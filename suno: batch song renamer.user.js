@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         suno: batch song renamer
-// @version      2026.02.26.1120
+// @version      2026.02.28.1341
 // @description  batch renames songs, includes pin/delete history, UI-refresh workaround
 // @author       hg42
-// @namespace    userscript.hg42
+// @namespace    https://github.com/hg42/suno-userscripts
 // @match        https://suno.com/*
 // @grant        none
 // ==/UserScript==

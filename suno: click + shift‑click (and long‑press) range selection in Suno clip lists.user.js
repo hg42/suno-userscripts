@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         suno: click + shift‑click (and long‑press) range selection in Suno clip lists
-// @version      2026.02.28.1258
+// @version      2026.02.28.1342
 // @description  click for first element, shift-click (or long press) for end of range selection
 // @author       hg42
-// @namespace    userscript.hg42
+// @namespace    https://github.com/hg42/suno-userscripts
 // @match        https://suno.com/*
 // @grant        none
 // @run-at       document-idle
