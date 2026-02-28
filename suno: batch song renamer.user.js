@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Suno Song Renamer Elite
-// @version      2026.02.26.1000
-// @description  Batch renames Suno songs. Includes Pin/Delete history, UI-Refresh workaround, and English comments.
+// @name         suno: batch song renamer
+// @version      2026.02.26.1120
+// @description  batch renames songs, includes pin/delete history, UI-refresh workaround
 // @author       hg42
 // @namespace    userscript.hg42
 // @match        https://suno.com/*
@@ -150,49 +150,49 @@
                 const id = link.getAttribute('href').split('/').pop();
                 if (!processedIds.has(id)) {
 
-                  processed++;
+                    processed++;
 
-                  // Highlight current rename in yellow
-                  link.style.color = '#fbbf24';
+                    // Highlight current rename in yellow
+                    link.style.color = '#fbbf24';
 
-                  const oldT = link.innerText.trim();
-                  let newT = "";
-                  try {
-                      newT = isRe ? oldT.replace(new RegExp(m, 'g'), r) : oldT.split(m).join(r);
-                  } catch(e) {
-                      console.error("Regex Error", e);
-                      isRunning = false;
-                      break;
-                  }
+                    const oldT = link.innerText.trim();
+                    let newT = "";
+                    try {
+                        newT = isRe ? oldT.replace(new RegExp(m, 'g'), r) : oldT.split(m).join(r);
+                    } catch(e) {
+                        console.error("Regex Error", e);
+                        isRunning = false;
+                        break;
+                    }
 
-                  row.scrollIntoView({ behavior: 'instant', block: 'center' });
-                  await sleep(100);
+                    row.scrollIntoView({ behavior: 'instant', block: 'center' });
+                    await sleep(100);
 
-                  if (newT !== oldT) {
-	                  await sleep(300);
-                      const editBtn = row.querySelector('button[aria-label*="Edit title"]');
-                      if (editBtn) {
-                          editBtn.click();
-                          await sleep(600);
-                          const input = row.querySelector('input[maxlength="80"]');
-                          if (input) {
-                              input.value = newT;
-                              input.dispatchEvent(new Event('input', { bubbles: true }));
-                              await sleep(300);
-                              const saveBtn = row.querySelector('button[aria-label*="Save title"]');
-                              if (saveBtn) {
-                                  saveBtn.click();
-                                  // Highlight successful rename in green
-                                  link.style.color = '#24ff24';
-                                  processedIds.add(id);
-                                  document.getElementById('count-display').innerText = `Count: ${processedIds.size}`;
-                                  await sleep(800);
-                              }
-                          }
-                      }
-                  } else {
-                      processedIds.add(id);
-                  }
+                    if (newT !== oldT) {
+                        await sleep(300);
+                        const editBtn = row.querySelector('button[aria-label*="Edit title"]');
+                        if (editBtn) {
+                            editBtn.click();
+                            await sleep(600);
+                            const input = row.querySelector('input[maxlength="80"]');
+                            if (input) {
+                                input.value = newT;
+                                input.dispatchEvent(new Event('input', { bubbles: true }));
+                                await sleep(300);
+                                const saveBtn = row.querySelector('button[aria-label*="Save title"]');
+                                if (saveBtn) {
+                                    saveBtn.click();
+                                    // Highlight successful rename in green
+                                    link.style.color = '#24ff24';
+                                    processedIds.add(id);
+                                    document.getElementById('count-display').innerText = `Count: ${processedIds.size}`;
+                                    await sleep(800);
+                                }
+                            }
+                        }
+                    } else {
+                        processedIds.add(id);
+                    }
                 }
 
                 // Highlight not renamed in blueish white
