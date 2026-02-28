@@ -44,12 +44,16 @@
     let lastPlayedClipId = null;
     let isMouseOverList = false;
 
-    document.addEventListener('mouseenter', (e) => {
-        if (e.target.closest('main')) isMouseOverList = true;
+    // Robuster Check für Mouse-Over via Event Delegation
+    document.addEventListener('mouseover', (e) => {
+        isMouseOverList = !!e.target.closest?.('main');
     }, true);
-    document.addEventListener('mouseleave', (e) => {
-        if (e.target.closest('main')) isMouseOverList = false;
-    }, true);
+    // document.addEventListener('mouseenter', (e) => {
+    //     if (e.target.closest('main')) isMouseOverList = true;
+    // }, true);
+    // document.addEventListener('mouseleave', (e) => {
+    //     if (e.target.closest('main')) isMouseOverList = false;
+    // }, true);
 
     // Hilfsfunktion: Findet den Song-Titel im Player-Modul (unten)
     const getPlayingTitleFromPlayer = () => {
