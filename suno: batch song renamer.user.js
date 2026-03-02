@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         suno: batch song renamer
-// @version      2026.02.28.1341
+// @version      2026.03.03.0031
 // @description  batch renames songs, includes pin/delete history, UI-refresh workaround
 // @author       hg42
 // @namespace    https://github.com/hg42/suno-userscripts
@@ -89,7 +89,7 @@
         `;
         document.body.appendChild(modal);
 
-        document.getElementById('close-modal').onclick = () => modal.style.display = 'none';
+        document.getElementById('close-modal').onclick = () => { modal.style.display = 'none' };
         document.getElementById('run-rename').onclick = startBatch;
         document.getElementById('stop-rename').onclick = () => { isRunning = false; };
         document.getElementById('force-refresh').onclick = triggerUIRefresh;
@@ -134,15 +134,16 @@
         document.getElementById('run-rename').style.display = 'none';
         document.getElementById('stop-rename').style.display = 'inline-block';
 
+        processedIds = new Set();
         let loopCounter = 0;
 
         while (isRunning) {
             const rows = Array.from(document.querySelectorAll('.clip-row'));
 
-          	let processed = 0;
+            let processed = 0;
 
             for (const row of rows) {
-              	console.log("row: " + loopCounter);
+                console.log("row: " + loopCounter);
                 if (!isRunning) break;
                 const link = row.querySelector('a[href*="/song/"]');
                 if (!link) continue;
@@ -173,20 +174,31 @@
                         const editBtn = row.querySelector('button[aria-label*="Edit title"]');
                         if (editBtn) {
                             editBtn.click();
-                            await sleep(600);
-                            const input = row.querySelector('input[maxlength="80"]');
+                            await sleep(300);
+                            const input = row.querySelector('input');
                             if (input) {
-                                input.value = newT;
+                                //input.value = newT;
+                                // React-kompatible Wertänderung
+                                const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+                                    window.HTMLInputElement.prototype,
+                                    'value'
+                                ).set;
+                                nativeInputValueSetter.call(input, newT);
                                 input.dispatchEvent(new Event('input', { bubbles: true }));
+                                //input.dispatchEvent(new Event('change', { bubbles: true }));
+                                //input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }));
                                 await sleep(300);
                                 const saveBtn = row.querySelector('button[aria-label*="Save title"]');
                                 if (saveBtn) {
+                                    saveBtn.style.color = '#24ff24';
+                                    await sleep(100);
                                     saveBtn.click();
+                                    //const link = row.querySelector('a[href*="/song/"]');
                                     // Highlight successful rename in green
                                     link.style.color = '#24ff24';
                                     processedIds.add(id);
                                     document.getElementById('count-display').innerText = `Count: ${processedIds.size}`;
-                                    await sleep(800);
+                                    await sleep(700);
                                 }
                             }
                         }
@@ -236,19 +248,19 @@
             </div>
         `).join('');
 
-        container.querySelectorAll('.chip-content').forEach(c => c.onclick = () => {
+        container.querySelectorAll('.chip-content').forEach(c => { c.onclick = () => {
             const item = h[c.dataset.idx];
             document.getElementById('match-input').value = item.m;
             document.getElementById('replace-input').value = item.r;
-        });
+        }});
 
-        container.querySelectorAll('.pin-icon').forEach(p => p.onclick = (e) => {
+        container.querySelectorAll('.pin-icon').forEach(p => { p.onclick = (e) => {
             e.stopPropagation(); togglePin(p.dataset.idx);
-        });
+        }});
 
-        container.querySelectorAll('.delete-icon').forEach(d => d.onclick = (e) => {
+        container.querySelectorAll('.delete-icon').forEach(d => { d.onclick = (e) => {
             e.stopPropagation(); deleteEntry(d.dataset.idx);
-        });
+        }});
     };
 
     const deleteEntry = (idx) => {
