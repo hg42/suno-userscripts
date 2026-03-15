@@ -1,9 +1,10 @@
 // ==UserScript==
 // @name         suno: batch song renamer
-// @version      2026.03.04.0216
+// @version      2026.03.04.1959
 // @description  batch renames songs with auto-apply, manual sorting, reverse processing, and variables
 // @author       hg42
 // @namespace    https://github.com/hg42/suno-userscripts
+// @icon         https://www.google.com/s2/favicons?sz=64&domain=suno.com
 // @match        https://suno.com/*
 // @grant        none
 // ==/UserScript==
@@ -86,17 +87,18 @@
             <div class="modal-buttons" style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; padding-bottom:10px; border-bottom: 1px solid #222;">
                 <div style="display:flex; gap:4px; white-space:nowrap;">
                     <span style="color:#888; font-size:10px; align-self:center; margin-right:4px;">Rules</span>
-                    <button id="export-replacements" class="suno-btn" style="background:#6366f1; color:white; font-size:11px;" title="Export replacement rules">📁↓</button>
-                    <button id="import-replacements" class="suno-btn" style="background:#8b5cf6; color:white; font-size:11px;" title="Import replacement rules">📂↑</button>
+                    <button id="export-replacements" class="suno-btn" style="background:#6366f1; color:white; font-size:11px;" title="Export replacement rules">→📁</button>
+                    <button id="import-replacements" class="suno-btn" style="background:#8b5cf6; color:white; font-size:11px;" title="Import replacement rules">←📁</button>
                 </div>
                 <div style="display:flex; gap:4px; white-space:nowrap;">
                     <span style="color:#888; font-size:10px; align-self:center; margin-right:4px;">Titles</span>
-                    <button id="export-titles" class="suno-btn" style="background:#0891b2; color:white; font-size:11px;" title="Export titles">📁↓</button>
-                    <button id="import-titles" class="suno-btn" style="background:#06b6d4; color:white; font-size:11px;" title="Import titles">📂↑</button>
+                    <button id="export-titles" class="suno-btn" style="background:#0891b2; color:white; font-size:11px;" title="Export titles">→📁</button>
+                    <button id="import-titles" class="suno-btn" style="background:#06b6d4; color:white; font-size:11px;" title="Import titles">←📁</button>
                 </div>
                 <div style="display:flex; gap:8px; white-space:nowrap;">
                     <button id="force-refresh" class="suno-btn" style="background:#444; color:white; font-size:9px;">Refresh</button>
                     <button id="run-rename" class="suno-btn" style="background:#16a34a; color:white;">Start</button>
+                    <button id="stop-rename" class="suno-btn" style="background:#dc2626; color:white; display:none;">Stop</button>
                 </div>
             </div>
             <div class="input-section">
@@ -105,7 +107,7 @@
                     <span class="input-clear" id="clear-match" style="position: absolute; right: 8px; cursor: pointer; color: #666; font-size: 14px; display: none;">✕</span>
                 </div>
                 <div class="input-wrapper">
-                    <input id="replace-input" class="suno-input" placeholder="Replace Pattern (use {var}, {i})">
+                    <input id="replace-input" class="suno-input" placeholder="Replace Pattern (use {var}, {idx})">
                     <span class="input-clear" id="clear-replace" style="position: absolute; right: 8px; cursor: pointer; color: #666; font-size: 14px; display: none;">✕</span>
                 </div>
                 <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -113,8 +115,7 @@
                 </div>
             </div>
             <div class="history-chip-container" id="chip-container"></div>
-            <div class="modal-footer">
-                <button id="stop-rename" class="suno-btn" style="background:#dc2626; color:white; display:none;">Stop</button>
+            <div class="modal-footer" style="display:none;">
             </div>
         `;
         document.body.appendChild(modal);
@@ -462,9 +463,10 @@
         if (m) {
             patterns.push({m, r});
         }
+        patterns.reverse()
 
         const titleCounts = new Map(); // Track title occurrences for {var}
-        let indexCounter = 1; // For {i} variable
+        let indexCounter = 0; // For {i} variable
 
         // STEP 1: Scroll to the very bottom first to load all clips
         console.log("Scrolling to bottom to load all clips...");
@@ -482,32 +484,22 @@
         await sleep(500);
 
         // STEP 2: Now process while scrolling upward slowly (single-line scrolling for lazy loading)
-        // We start at the BOTTOM (newest clips with highest existing numbers if any)
-        // and work our way UP (to older clips), so index counter counts DOWN
+        // We start at the BOTTOM (oldest clips) and work our way UP (to newest clips at top)
+        // Index counter counts from 1 upward for each unnumbered clip
         let noNewClipsCounter = 0;
         let lastProcessedId = null;
 
-        // Find highest existing number to start counter from there
-        let highestNumber = 0;
-        const allRows = Array.from(document.querySelectorAll('.clip-row'));
-        for (const row of allRows) {
-            const link = row.querySelector('a[href*="/song/"]');
-            if (link) {
-                const title = link.innerText.trim();
-                const match = title.match(/#(\d{3})/);
-                if (match) {
-                    const num = parseInt(match[1]);
-                    if (num > highestNumber) highestNumber = num;
-                }
-            }
-        }
-        indexCounter = highestNumber > 0 ? highestNumber + 1 : 1;
-
         while (isRunning) {
             const rows = Array.from(document.querySelectorAll('.clip-row'));
+
+            // CRITICAL: Reverse array to process from bottom (oldest) to top (newest)
+            rows.reverse();
+
+            console.log('got rows ' + rows.length)
+
             let processedInThisIteration = false;
 
-            // Find the first unprocessed row (from current viewport)
+            // Process rows from bottom to top
             for (const row of rows) {
                 if (!isRunning) break;
 
@@ -516,130 +508,155 @@
 
                 const id = link.getAttribute('href').split('/').pop();
 
-                // Skip if already processed
-                if (processedIds.has(id)) {
-                    link.style.color = '#bfbffb';
-                    continue;
-                }
+                // Check if already processed
+                const alreadyProcessed = processedIds.has(id);
 
-                // Found an unprocessed clip - process it
-                processedInThisIteration = true;
+                // Variables for index handling
+                let idxValue = null;
 
-                link.style.color = '#fbbf24';
-
-                let currentTitle = link.innerText.trim();
-                let finalTitle = currentTitle;
-
-                // Check if title already has a 3-digit number (#xxx)
+                // Check current title for existing number BEFORE any processing
+                const currentTitle = link.innerText.trim();
                 const existingNumberMatch = currentTitle.match(/#(\d{3})/);
-                let skipIndexVar = false;
-                let iValue = null;
+
+                console.log('    row title ' + currentTitle)
 
                 if (existingNumberMatch) {
-                    // Title already numbered, set counter to this value
+                    // Title already has #xxx - set counter to this value but DON'T use idx variable
                     indexCounter = parseInt(existingNumberMatch[1]);
-                    skipIndexVar = true;
+                    idxValue = null;
+                    console.log('        #idx found: ' + existingNumberMatch[1] + ' -> indexCounter=' + indexCounter + ' idxValue=null')
                 } else {
-                    // Use current counter value
-                    iValue = `#${String(indexCounter).padStart(3, '0')}`;
-                }
-
-                // Apply all patterns in sequence
-                for (const pattern of patterns) {
-                    const patternM = pattern.m;
-                    const patternR = pattern.r;
-
-                    try {
-                        // Always use regex
-                        let newTitle = finalTitle.replace(new RegExp(patternM, 'g'), patternR);
-
-                        // Variable substitution
-                        if (newTitle !== finalTitle) {
-                            // Prepare variables
-                            const variables = {};
-
-                            // {i} - only if not already numbered
-                            if (!skipIndexVar && iValue) {
-                                variables.i = iValue;
-                            }
-
-                            // {var} - variant counter (only if duplicate title)
-                            const baseTitle = newTitle.replace(/\{var\}/g, '').replace(/\{i\}/g, '');
-                            const count = titleCounts.get(baseTitle) || 0;
-                            if (count > 0) {
-                                variables.var = String(count + 1);
-                            }
-
-                            // Apply variable substitutions
-                            for (const [varName, varValue] of Object.entries(variables)) {
-                                const regex = new RegExp(`\\{${varName}\\}`, 'g');
-                                newTitle = newTitle.replace(regex, varValue);
-                            }
-
-                            // Remove any remaining unset variables
-                            newTitle = newTitle.replace(/\{[^}]+\}/g, '');
-
-                            finalTitle = newTitle;
-                        }
-                    } catch(e) {
-                        console.error("Regex Error", e);
-                        isRunning = false;
-                        break;
-                    }
-                }
-
-                // Track title for {var} variable
-                const baseTitleForTracking = finalTitle.replace(/\{var\}/g, '').replace(/\{i\}/g, '');
-                titleCounts.set(baseTitleForTracking, (titleCounts.get(baseTitleForTracking) || 0) + 1);
-
-                row.scrollIntoView({ behavior: 'instant', block: 'center' });
-                await sleep(100);
-
-                if (finalTitle !== currentTitle) {
-                    await sleep(300);
-                    const editBtn = row.querySelector('button[aria-label*="Edit title"]');
-                    if (editBtn) {
-                        editBtn.click();
-                        await sleep(300);
-                        const input = row.querySelector('input');
-                        if (input) {
-                            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-                                window.HTMLInputElement.prototype,
-                                'value'
-                            ).set;
-                            nativeInputValueSetter.call(input, finalTitle);
-                            input.dispatchEvent(new Event('input', { bubbles: true }));
-                            await sleep(300);
-                            const saveBtn = row.querySelector('button[aria-label*="Save title"]');
-                            if (saveBtn) {
-                                saveBtn.style.color = '#24ff24';
-                                await sleep(100);
-                                saveBtn.click();
-                                link.style.color = '#24ff24';
-                                processedIds.add(id);
-                                document.getElementById('count-display').innerText = `Count: ${processedIds.size}`;
-                                await sleep(700);
-                            }
-                        }
-                    }
-                } else {
-                    processedIds.add(id);
-                }
-
-                // Increment index counter only if we didn't skip it
-                if (!skipIndexVar) {
+                    // No number yet - increment counter first, then use it
                     indexCounter++;
+                    idxValue = `#${String(indexCounter).padStart(3, '0')}`;
+                    console.log('        incrementing indexCounter=' + indexCounter + ' idxValue=' + idxValue)
                 }
 
-                link.style.color = '#bfbffb';
-                lastProcessedId = id;
+                if (!alreadyProcessed) {
+                    processedInThisIteration = true;
 
-                // After processing one clip, scroll up just a bit to load more
-                // Use small scroll amount to respect lazy loading
-                window.scrollBy(0, -50);
-                await sleep(200);
+                    link.style.color = '#fbbf24';
 
-                break; // Process only one clip per iteration to handle lazy loading properly
+                    let finalTitle = currentTitle;
+
+                    // Apply all patterns in sequence
+                    for (const pattern of patterns) {
+                        const patternM = pattern.m;
+                        const patternR = pattern.r;
+
+                        try {
+                            // Always use regex
+                            let newTitle = finalTitle.replace(new RegExp(patternM, 'g'), patternR);
+
+                            // Variable substitution
+                            if (newTitle !== finalTitle) {
+                                // Prepare variables
+                                const variables = {};
+
+                                variables.idx = idxValue;
+
+                                // {var} - variant counter (only if duplicate title)
+                                const baseTitle = newTitle.replace(/\{var\}/g, '').replace(/\{idx\}/g, '');
+                                const count = titleCounts.get(baseTitle) || 0;
+                                if (count > 0) {
+                                    variables.var = String(count + 1);
+                                }
+
+                                var ignorePattern = false;
+                                // Apply variable substitutions
+                                for (const [varName, varValue] of Object.entries(variables)) {
+                                    const regex = new RegExp(`\\{${varName}\\}`, 'g');
+                                    if (newTitle.match(regex)) {
+                                        if (varValue) {
+                                            newTitle = newTitle.replace(regex, varValue);
+                                        } else {
+                                            ignorePattern = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (ignorePattern) {
+                                    console.log('ignorePattern: ' + pattern)
+                                    continue;
+                                }
+
+                                // Remove any remaining unset variables
+                                newTitle = newTitle.replace(/\{[^}]+\}/g, '');
+
+                                finalTitle = newTitle;
+                                console.log('            title: ' + finalTitle)
+                            }
+                        } catch(e) {
+                            console.error("Regex Error", e);
+                            isRunning = false;
+                            break;
+                        }
+                    }
+
+                    // Track title for {var} variable
+                    const baseTitleForTracking = finalTitle.replace(/\{var\}/g, '').replace(/\{idx\}/g, '');
+                    titleCounts.set(baseTitleForTracking, (titleCounts.get(baseTitleForTracking) || 0) + 1);
+
+                    row.scrollIntoView({ behavior: 'instant', block: 'center' });
+                    await sleep(100);
+
+                    if (finalTitle !== currentTitle) {
+                        console.log('        title: ' + finalTitle)
+                        await sleep(100);
+                        const editBtn = row.querySelector('button[aria-label*="Edit title"]');
+                        if (editBtn) {
+                            editBtn.click();
+                            await sleep(100);
+                            const input = row.querySelector('input');
+                            if (input) {
+                                const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+                                    window.HTMLInputElement.prototype,
+                                    'value'
+                                ).set;
+                                nativeInputValueSetter.call(input, finalTitle);
+                                input.dispatchEvent(new Event('input', { bubbles: true }));
+                                await sleep(100);
+                                const saveBtn = row.querySelector('button[aria-label*="Save title"]');
+                                if (saveBtn) {
+                                    saveBtn.style.color = '#24ff24';
+                                    await sleep(100);
+                                    saveBtn.click();
+                                    link.style.color = '#24ff24';
+                                    processedIds.add(id);
+                                    document.getElementById('count-display').innerText = `Count: ${processedIds.size}`;
+                                    var titleReady = null;
+                                    var i = 0;
+                                    while (i<50) {
+                                        await sleep(100);
+                                        i++;
+                                        const link = row.querySelector('a[href*="/song/"]');
+                                        if (link) {
+                                            titleReady = link.innerText.trim();
+                                            if (titleReady === finalTitle)
+                                                break;
+                                        }
+                                    }
+                                    console.log('        title: ' + titleReady)
+                                }
+                            }
+                        }
+                    } else {
+                        processedIds.add(id);
+                    }
+
+                    link.style.color = '#bfbffb';
+                }
+
+                // Only break after processing ONE new clip (for lazy loading)
+                if (!alreadyProcessed) {
+                    lastProcessedId = id;
+
+                    // After processing one clip, scroll up just a bit to load more
+                    window.scrollBy(0, -50);
+                    await sleep(200);
+
+                    break; // Process only one new clip per iteration
+                }
             }
 
             // Check if we processed anything in this iteration
@@ -689,8 +706,14 @@
         container.querySelectorAll('.chip-content').forEach(c => {
             c.onclick = () => {
                 const item = h[c.dataset.idx];
-                document.getElementById('match-input').value = item.m;
-                document.getElementById('replace-input').value = item.r;
+                const matchInput = document.getElementById('match-input');
+                const replaceInput = document.getElementById('replace-input');
+                matchInput.value = item.m;
+                replaceInput.value = item.r;
+
+                // Show clear buttons
+                document.getElementById('clear-match').style.display = 'block';
+                document.getElementById('clear-replace').style.display = 'block';
             }
         });
 
