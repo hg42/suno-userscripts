@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         suno: batch song renamer
-// @version      2026.03.04.1959
+// @version      2026.07.31.119
 // @description  batch renames songs with auto-apply, manual sorting, reverse processing, and variables
 // @author       hg42
 // @namespace    https://github.com/hg42/suno-userscripts
@@ -835,7 +835,7 @@
 
         if (existingIdx > -1) h.splice(existingIdx, 1);
         h.unshift({m, r, pinned, alwaysApply});
-        localStorage.setItem('suno-h6', JSON.stringify(h.slice(0, 20)));
+        localStorage.setItem('suno-h6', JSON.stringify(h.slice(0, 100)));
         renderChips();
     };
 
@@ -846,7 +846,7 @@
         if (filterBtn?.parentNode?.parentNode) {
             const btn = document.createElement('button');
             btn.id = 'suno-rename-trigger'; btn.innerText = 'Rename';
-            filterBtn.parentNode.parentNode.append(btn);
+            filterBtn.parentNode.append(btn);
             btn.onclick = () => {
                 document.getElementById('suno-rename-modal').style.display = 'flex';
                 renderChips();
