@@ -16,6 +16,7 @@
     // --- Configuration & State ---
     const MENU_ID = 'suno-custom-context-menu';
     const FILE_INPUT_ID = 'suno-style-import-input';
+    const DIALOG_SELECTOR = '[role="dialog"][aria-labelledby]'
 
     // --- UI Setup ---
     function injectStyles() {
@@ -107,33 +108,61 @@
         closeMenu();
     });
 
-    // Event delegation for the target button
+    // Event delegation (mit 'true' für die Capture-Phase, um React zuvorzukommen)
     document.addEventListener('contextmenu', (e) => {
-        const wrapper = e.target.closest('[data-testid="create-form-styles-wrapper"]');
-        if (wrapper) {
-            const firstButton = wrapper.querySelector('button');
-            if (firstButton && (e.target === firstButton || firstButton.contains(e.target))) {
-                e.preventDefault();
-                showMenu(e.pageX, e.pageY);
+        let menuTriggered = false;
+
+        // 1. Ziel: Der ursprüngliche Button
+        const firstButton = e.target.closest('button[aria-label~="style prompts"]');
+        if (firstButton && (e.target === firstButton || firstButton.contains(e.target))) {
+            menuTriggered = true;
+        }
+
+        // 2. Ziel: Ein Rechtsklick auf den Hintergrund des Dialogs
+        const dialog = e.target.closest(DIALOG_SELECTOR);
+        if (!menuTriggered && dialog) {
+            // Ignoriere Klicks auf Eingabefelder (für normales Copy/Paste) und die Listenelemente selbst
+            const isInput = e.target.closest('input, textarea');
+            const isListItem = e.target.closest('.group');
+
+            if (!isInput && !isListItem) {
+                menuTriggered = true;
             }
         }
-    });
+
+        // Menü anzeigen und Chromium-Standardmenü blockieren
+        if (menuTriggered) {
+            e.preventDefault();
+            e.stopPropagation(); // Verhindert, dass React etwas anderes damit macht
+            showMenu(e.pageX, e.pageY);
+        }
+    }, true); // <--- WICHTIG: Capture-Phase aktivieren
 
     // --- Core Logic ---
+
     function getScrollableParent(element) {
         let parent = element;
         while (parent && parent !== document.body) {
-            const overflowY = window.getComputedStyle(parent).overflowY;
-            if (overflowY === 'auto' || overflowY === 'scroll') {
+            const style = window.getComputedStyle(parent);
+            const isScrollable = (style.overflowY === 'auto' || style.overflowY === 'scroll' || style.overflow === 'auto');
+            // Prüfen, ob das Element tatsächlich scrollbaren Inhalt hat
+            if (isScrollable && parent.scrollHeight > parent.clientHeight) {
                 return parent;
             }
             parent = parent.parentElement;
+        }
+        // Fallback: Suche innerhalb des Dialogs nach typischen Viewport-Klassen oder dem Dialog selbst
+        const dialog = element.closest('[role="dialog"]');
+        if (dialog) {
+            const viewport = dialog.querySelector('[data-radix-scroll-area-viewport]') || dialog.querySelector('.overflow-y-auto');
+            if (viewport) return viewport;
+            return dialog;
         }
         return element;
     }
 
     async function handleExport() {
-        const dialog = document.querySelector('div[role="dialog"]');
+        const dialog = document.querySelector(DIALOG_SELECTOR);
         if (!dialog) {
             alert("Please open the styles dialog first.");
             return;
@@ -146,18 +175,25 @@
         }
 
         const scrollTarget = getScrollableParent(container);
+        console.log("Found scroll target:", scrollTarget);
+
         const extractedStyles = new Map();
         let previousScrollTop = -1;
 
+        // An den Anfang scrollen
         scrollTarget.scrollTop = 0;
         await new Promise(resolve => setTimeout(resolve, 300));
 
         console.log("Starting auto-scroll export...");
 
         while (true) {
-            Array.from(container.children).forEach(entry => {
-                const titleEl = entry.querySelector('span.text-sm');
-                const promptEl = entry.querySelector('span.text-xs');
+            // Find all style row containers
+            const groupRows = container.querySelectorAll('.group');
+
+            groupRows.forEach(group => {
+
+                const titleEl = group.querySelector('span.text-sm');
+                const promptEl = group.querySelector('span.text-xs');
 
                 const title = titleEl ? titleEl.innerText.trim() : '';
                 const prompt = promptEl ? promptEl.innerText.trim() : '';
@@ -168,14 +204,18 @@
                 }
             });
 
+            // 2. Scrollen via scrollBy
+            const scrollAmount = Math.max(scrollTarget.clientHeight * 0.75, 200);
+            scrollTarget.scrollBy({ top: scrollAmount, behavior: 'instant' });
+
+            // 3. Warten auf React Render
+            await new Promise(resolve => setTimeout(resolve, 300));
+
+            // Abbruchbedingung: Wenn sich scrollTop nicht mehr verändert
             if (Math.abs(scrollTarget.scrollTop - previousScrollTop) < 1) {
                 break;
             }
-
             previousScrollTop = scrollTarget.scrollTop;
-            scrollTarget.scrollTop += scrollTarget.clientHeight * 0.75;
-
-            await new Promise(resolve => setTimeout(resolve, 250));
         }
 
         const stylesData = Array.from(extractedStyles.values());
