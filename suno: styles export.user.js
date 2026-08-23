@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         suno: styles export/import
 // @namespace    http://tampermonkey.net/
-// @version      2026.08.23.0059
+// @version      2026.08.23.0060
 // @description  Export and import styles in Suno via right-click context menu (handles lazy loading).
 // @author       hg42
 // @namespace    https://github.com/hg42/suno-userscripts
@@ -16,7 +16,7 @@
     // --- Configuration & State ---
     const MENU_ID = 'suno-custom-context-menu';
     const FILE_INPUT_ID = 'suno-style-import-input';
-    const DIALOG_SELECTOR = '[role="dialog"][aria-labelledby]'
+    const DIALOG_SELECTOR = '[role="dialog"][aria-labelledby]';
 
     // --- UI Setup ---
     function injectStyles() {
@@ -55,10 +55,15 @@
             menu.id = MENU_ID;
             menu.style.display = 'none';
 
-            const btnExport = document.createElement('div');
-            btnExport.innerText = 'Export Styles';
-            btnExport.onclick = () => { closeMenu(); handleExport(); };
+            const btnExportJson = document.createElement('div');
+            btnExportJson.innerText = 'Export as JSON';
+            btnExportJson.onclick = () => { closeMenu(); handleExport('json'); };
 
+            const btnExportText = document.createElement('div');
+            btnExportText.innerText = 'Export as Text';
+            btnExportText.onclick = () => { closeMenu(); handleExport('text'); };
+
+            /* --- TEMPORARILY DISABLED ---
             const btnImport = document.createElement('div');
             btnImport.innerText = 'Import Styles';
             btnImport.onclick = () => { closeMenu(); handleImportClick(); };
@@ -66,10 +71,16 @@
             const btnClear = document.createElement('div');
             btnClear.innerText = 'Clear (WIP)';
             btnClear.onclick = () => { closeMenu(); console.log('Clear triggered'); };
+            */
 
-            menu.appendChild(btnExport);
+            menu.appendChild(btnExportJson);
+            menu.appendChild(btnExportText);
+
+            /* --- TEMPORARILY DISABLED ---
             menu.appendChild(btnImport);
             menu.appendChild(btnClear);
+            */
+
             document.body.appendChild(menu);
         }
         return menu;
@@ -108,7 +119,7 @@
         closeMenu();
     });
 
-    // Event delegation (mit 'true' für die Capture-Phase, um React zuvorzukommen)
+    // Event delegation
     document.addEventListener('contextmenu', (e) => {
         let menuTriggered = false;
 
@@ -121,7 +132,6 @@
         // 2. Ziel: Ein Rechtsklick auf den Hintergrund des Dialogs
         const dialog = e.target.closest(DIALOG_SELECTOR);
         if (!menuTriggered && dialog) {
-            // Ignoriere Klicks auf Eingabefelder (für normales Copy/Paste) und die Listenelemente selbst
             const isInput = e.target.closest('input, textarea');
             const isListItem = e.target.closest('.group');
 
@@ -130,13 +140,13 @@
             }
         }
 
-        // Menü anzeigen und Chromium-Standardmenü blockieren
+        // Menü anzeigen
         if (menuTriggered) {
             e.preventDefault();
-            e.stopPropagation(); // Verhindert, dass React etwas anderes damit macht
+            e.stopPropagation();
             showMenu(e.pageX, e.pageY);
         }
-    }, true); // <--- WICHTIG: Capture-Phase aktivieren
+    }, true);
 
     // --- Core Logic ---
 
@@ -145,13 +155,11 @@
         while (parent && parent !== document.body) {
             const style = window.getComputedStyle(parent);
             const isScrollable = (style.overflowY === 'auto' || style.overflowY === 'scroll' || style.overflow === 'auto');
-            // Prüfen, ob das Element tatsächlich scrollbaren Inhalt hat
             if (isScrollable && parent.scrollHeight > parent.clientHeight) {
                 return parent;
             }
             parent = parent.parentElement;
         }
-        // Fallback: Suche innerhalb des Dialogs nach typischen Viewport-Klassen oder dem Dialog selbst
         const dialog = element.closest('[role="dialog"]');
         if (dialog) {
             const viewport = dialog.querySelector('[data-radix-scroll-area-viewport]') || dialog.querySelector('.overflow-y-auto');
@@ -161,7 +169,7 @@
         return element;
     }
 
-    async function handleExport() {
+    async function handleExport(format = 'json') {
         const dialog = document.querySelector(DIALOG_SELECTOR);
         if (!dialog) {
             alert("Please open the styles dialog first.");
@@ -180,18 +188,15 @@
         const extractedStyles = new Map();
         let previousScrollTop = -1;
 
-        // An den Anfang scrollen
         scrollTarget.scrollTop = 0;
         await new Promise(resolve => setTimeout(resolve, 300));
 
-        console.log("Starting auto-scroll export...");
+        console.log(`Starting auto-scroll export (${format})...`);
 
         while (true) {
-            // Find all style row containers
             const groupRows = container.querySelectorAll('.group');
 
             groupRows.forEach(group => {
-
                 const titleEl = group.querySelector('span.text-sm');
                 const promptEl = group.querySelector('span.text-xs');
 
@@ -204,14 +209,11 @@
                 }
             });
 
-            // 2. Scrollen via scrollBy
             const scrollAmount = Math.max(scrollTarget.clientHeight * 0.75, 200);
             scrollTarget.scrollBy({ top: scrollAmount, behavior: 'instant' });
 
-            // 3. Warten auf React Render
             await new Promise(resolve => setTimeout(resolve, 300));
 
-            // Abbruchbedingung: Wenn sich scrollTop nicht mehr verändert
             if (Math.abs(scrollTarget.scrollTop - previousScrollTop) < 1) {
                 break;
             }
@@ -227,10 +229,22 @@
 
         console.log(`Exported ${stylesData.length} styles.`);
 
-        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(stylesData, null, 2));
+        let dataStr = "";
+        let filename = "";
+        const dateStr = new Date().toISOString().split('T')[0];
+
+        if (format === 'json') {
+            dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(stylesData, null, 2));
+            filename = `suno_styles_${dateStr}.json`;
+        } else if (format === 'text') {
+            const textContent = stylesData.map(style => `== ${style.title}\n${style.prompt}`).join('\n\n') + '\n';
+            dataStr = "data:text/plain;charset=utf-8," + encodeURIComponent(textContent);
+            filename = `suno_styles_${dateStr}.txt`;
+        }
+
         const downloadAnchorNode = document.createElement('a');
         downloadAnchorNode.setAttribute("href", dataStr);
-        downloadAnchorNode.setAttribute("download", `suno_styles_${new Date().toISOString().split('T')[0]}.json`);
+        downloadAnchorNode.setAttribute("download", filename);
         document.body.appendChild(downloadAnchorNode);
         downloadAnchorNode.click();
         downloadAnchorNode.remove();
