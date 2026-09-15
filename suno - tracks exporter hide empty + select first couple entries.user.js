@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         suno - tracks exporter hide empty + select first couple entries
 // @namespace    http://tampermonkey.net
-// @version      2026-09-14-1414
+// @version      2026-09-15-1700
 // @description  Hides empty workspaces and checks the checkboxes for the first couple of visible entries.
 // @author       hg42
 // @match        https://suno.com/*
@@ -17,11 +17,18 @@
 
         const n_select = 25;
 
-        // 1. Hide .workspace-card containing "0 tracks"
+        // 1. Hide .workspace-group where .workspace-count matches exactly "0 tracks"
         const cards = document.querySelectorAll('.workspace-group');
         cards.forEach(card => {
-            if (card.textContent.includes('0 tracks')) {
-                card.style.display = 'none';
+            const countElement = card.querySelector('.workspace-count');
+
+            if (countElement) {
+                // Trimmt Leerzeichen/Newlines für exakten Vergleich
+                const countText = countElement.textContent.trim();
+
+                if (countText === '0 tracks') {
+                    card.style.display = 'none';
+                }
             }
         });
 
@@ -33,7 +40,6 @@
             const checkbox = card.querySelector('.workspace-checkbox');
             if (checkbox && !checkbox.checked) {
                 checkbox.click(); // Triggers native event handlers
-                checkbox.checked = true;
             }
         });
     }
